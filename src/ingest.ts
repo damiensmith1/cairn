@@ -1,5 +1,6 @@
 import { stat } from "node:fs/promises";
 import { chunkTexts } from "./chunk.js";
+import { extractPointers, POINTERS_VERSION } from "./pointers.js";
 import type { Embedder } from "./embed.js";
 import type { Source } from "./sources/source.js";
 import type { Store } from "./store.js";
@@ -40,6 +41,17 @@ export async function ingest(store: Store, sources: Source[], now = Date.now()):
     }
   }
   return result;
+}
+
+/** Extracts pointers for every exchange not yet processed at this extraction version. */
+export function extractPending(store: Store): number {
+  let n = 0;
+  for (;;) {
+    const exchanges = store.pending("pointers", POINTERS_VERSION, 500);
+    if (exchanges.length === 0) return n;
+    store.addPointers(POINTERS_VERSION, exchanges.map((x) => ({ seq: x.seq, pointers: extractPointers(x) })));
+    n += exchanges.length;
+  }
 }
 
 export interface EmbedProgress {

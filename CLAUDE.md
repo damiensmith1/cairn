@@ -8,15 +8,20 @@ the verbatim conversation with its source. A background service (cairnd)
 runs the core; the CLI, a terminal dashboard and an MCP server are thin
 clients. Sources are plug-ins per coding agent (Claude Code first).
 
-Status: build step 1 (ingest + hybrid search) works end to end on real
-data; no daemon, labels, pointers or MCP yet. See the build order in
+Status: build steps 1–2 work on real data: ingest, local embeddings,
+hybrid search, pointers (`refs`, `related`) and label probes with
+boosting (boost not yet tuned). No daemon, query understanding or MCP
+yet. See the build order in
 docs/design.md.
 
 ## Commands
 - `npm test`: unit tests on synthetic transcripts (never real sessions)
 - `npm run typecheck`
 - `npm run cairn -- index [--no-embed] [--limit N]`: read new logs, embed what's new
-- `npm run cairn -- search "<query>" [--project P] [--since DATE]`
+- `npm run cairn -- search|decisions|unresolved "<query>" [--project P] [--since DATE] [--topic T]`
+- `npm run cairn -- refs <file|sha|#pr|url>` and `npm run cairn -- related <session>`
+- `npm run train-labels`: trains the label probes into `~/.cairn/models/labels.json`
+  from labelled exchanges (the spike's data in `~/.cairn/spikes/decisions/`)
 - `npm run cairn -- status`
 - Data lives in `~/.cairn/` (or `CAIRN_HOME`); tests use a temp dir and an
   in-memory store.

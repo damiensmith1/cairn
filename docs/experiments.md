@@ -10,6 +10,31 @@ Spikes run to settle [[design]] questions with data. Newest first. Raw
 data (conversation excerpts, labels, scores) stays outside the repo in
 `~/.cairn/spikes/`, since it's the author's own conversations.
 
+## 2026-10-17 · Label probes on stored vectors, and the first boost check
+
+**Training.** The probes were re-trained in TypeScript (logistic and
+softmax regression, L2, balanced class weights, Adam) on the vectors cairn
+stores (the mean of each exchange's chunk vectors), from the spike's
+labels: 284 of 300 labelled exchanges matched a stored exchange. Grouped
+5-fold CV by session: **decision AUC 0.71, unresolved AUC 0.64, topic
+accuracy 0.51**, in line with the spike (0.68 / 0.64 / 0.52), which
+validates the TypeScript trainer. Training takes ~25 s; labelling all
+3,840 exchanges a few seconds.
+
+**The boost on a real query is too weak.** "why did we pick sqlite for
+cairn" (asked as a decision search) still didn't surface the "sqlite is
+fine" exchange: retrieval ranked it 37th (keyword) and 59th (vector,
+outside the 50-candidate pool), and the probe gave it p(decision) 0.54
+against a median of 0.47 and a 90th percentile of 0.68. Probe scores
+cluster around 0.5, so multiplying by (1 + p) lifts nearly everything a
+little. Not tuned on this one query: that would be overfitting. The
+retrieval eval (build step 4) is where boost strength, candidate pool size
+and the label model get tuned.
+
+**Pointers.** 9,189 pointers from 1,690 of 3,840 exchanges. `refs` finds
+edits and mentions in order (including mentions made as examples);
+`related` ranks sessions by shared targets.
+
 ## 2026-10-16 · Query understanding: intent + project (rules vs. embeddings vs. Laya)
 
 **Question:** Laya lost as an exchange labeller. Does it earn a job reading

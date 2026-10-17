@@ -16,7 +16,8 @@
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "cairn": "tsx src/cli.ts"
+    "cairn": "tsx src/cli.ts",
+    "train-labels": "tsx scripts/train-labels.ts"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",

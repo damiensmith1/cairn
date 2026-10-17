@@ -1,4 +1,5 @@
 import type { Embedder } from "./embed.js";
+import type { LabelModel } from "./labels.js";
 import { contentKey } from "./store.js";
 import type { Match, Store } from "./store.js";
 import type { StoredExchange } from "./types.js";
@@ -28,11 +29,22 @@ export function fuse(lists: number[][]): Map<number, number> {
   return scores;
 }
 
+/** What the question is after; decides which label boosts. See the query layer in docs/design.md. */
+export type Intent = "decision" | "open" | "recall" | "find_session" | "refs";
+
+/** How much a label can raise a result: a score is multiplied by up to (1 + LABEL_BOOST). */
+export const LABEL_BOOST = 1;
+
 export interface SearchOptions {
   limit?: number;
   project?: string;
   /** ISO date; only exchanges at or after it. */
   since?: string;
+  intent?: Intent;
+  /** Only exchanges whose labelled topic is this. Needs a label model. */
+  topic?: string;
+  /** The label model whose stored labels boost and filter; without one, labels are ignored. */
+  labels?: LabelModel;
 }
 
 export interface Hit {
@@ -58,6 +70,15 @@ export async function search(store: Store, embedder: Embedder, query: string, op
   const [vector] = await embedder.embed([query], "query");
   const nearest = store.nearest(vector!, pool);
   const scores = fuse([keyword.map((m) => m.seq), nearest.map((m) => m.seq)]);
+  // Labels re-rank: a decision question lifts exchanges likely to hold a decision, an open
+  // question lifts unresolved ones.
+  const labels = options.labels ? store.labels([...scores.keys()], options.labels.version) : new Map();
+  if (options.intent === "decision" || options.intent === "open") {
+    for (const [seq, score] of scores) {
+      const l = labels.get(seq);
+      if (l) scores.set(seq, score * (1 + LABEL_BOOST * (options.intent === "decision" ? l.pDecision : l.pUnresolved)));
+    }
+  }
   const ranked = [...scores.entries()].sort((a, b) => b[1] - a[1]).map(([seq]) => seq);
   const bySeq = new Map(store.exchanges(ranked).map((x) => [x.seq, x]));
 
@@ -70,6 +91,7 @@ export async function search(store: Store, embedder: Embedder, query: string, op
     if (!x) continue;
     if (options.project && x.project !== options.project) continue;
     if (options.since && x.at < options.since) continue;
+    if (options.topic && labels.get(seq)?.topic !== options.topic) continue;
     // Forked and resumed sessions copy earlier exchanges: show each once.
     const key = contentKey(x);
     if (seen.has(key)) continue;

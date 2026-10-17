@@ -267,6 +267,12 @@ Each links to the full write-up in [[experiments]].
   moment), the case for label boosting; (3) **project is `.clance` for
   most results**, so project from content matters in practice; (4)
   **snippets show an exchange's start, not the part that matched**.
+- **Labels and pointers on the real history (2026-10-17).** Probes
+  trained on stored vectors: decision AUC 0.71, unresolved 0.64, topic
+  0.51. Their scores cluster around 0.5 (median p_decision 0.47, p90
+  0.68), so the decision boost barely moves rankings; the one real query
+  checked didn't improve. Pointers: 9,189 from 1,690 exchanges; `refs` and
+  `related` work as intended.
 - **The agent is the ceiling.** A Claude labeller understood 119/120
   queries. In Claude Code the agent does step 1 itself.
 
@@ -302,7 +308,7 @@ Each links to the full write-up in [[experiments]].
 1. **Search:** transcript parser, store, watcher and backfill, keyword +
    vector index, `search` in the CLI. Useful on day one.
 2. **Pointers**, `refs` and related sessions; **labels** (embedding probe)
-   and label boosting.
+   and label boosting. Built 2026-10-17; the boost needs tuning (step 4).
 3. **open, brief, ask**, the query-understanding step, and the MCP
    adapter.
 4. **Retrieval eval:** labelled questions with known answer sessions;
@@ -350,7 +356,19 @@ Each links to the full write-up in [[experiments]].
       branch?
 - [ ] **Where the watcher runs:** `cairn watch` as a long-running process,
       launchd, or inside the MCP server process.
-- [ ] **Ranking:** fusion method and how strongly labels boost.
+- [ ] **Ranking:** fusion method, candidate pool size (50 per list today;
+      a target ranked 59th by vector was cut), and how labels boost.
+      Probe scores cluster near 0.5, so a multiplicative (1 + p) boost is
+      weak; options include boosting by percentile within the candidates.
+      Tune against the retrieval eval, not single queries.
+- [ ] **A label model for other users.** The probes are trained on the
+      author's labelled exchanges and live in `~/.cairn/models/`, not the
+      repo. A fresh install has no label model, so labels are off. Ship a
+      default trained on shareable data, or let users label a sample?
+- [ ] **Path pointers:** a bare name ("jev.ts") and its full path count as
+      two targets in `related`; edits made from a cwd outside the repo
+      (e.g. `~/.clance`) keep absolute paths. `refs` matches by suffix, so
+      lookups work; counting and display don't unify them yet.
 - [ ] **Pointer normalisation:** relative vs. absolute paths per project
       root; telling real SHAs from other hex strings (check against git?).
 - [ ] **Reranker model:** Qwen3-Reranker-0.6B or a bge-reranker, if any.

@@ -5,6 +5,9 @@ import { dirname } from "node:path";
 import * as sqliteVec from "sqlite-vec";
 import { initialState } from "./sources/source.js";
 import type { ReadState } from "./sources/source.js";
+import type { Labels } from "./labels.js";
+import { refQuery } from "./pointers.js";
+import type { Pointer } from "./pointers.js";
 import type { Exchange, StoredExchange } from "./types.js";
 
 export interface Cursor {
@@ -18,6 +21,9 @@ export interface StoreStats {
   sessions: number;
   embedded: number;
   chunks: number;
+  pointers: number;
+  linked: number;
+  labelled: number;
 }
 
 interface Row {
@@ -126,6 +132,21 @@ export class Store {
       );
       CREATE INDEX IF NOT EXISTS chunks_exchange ON chunks(exchange_seq);
       CREATE VIRTUAL TABLE IF NOT EXISTS chunk_vectors USING vec0(embedding float[${this.dims}] distance_metric=cosine);
+      -- Which enrichers have processed which exchanges, so exchanges with nothing to add aren't redone.
+      CREATE TABLE IF NOT EXISTS enrichments (
+        exchange_seq INTEGER NOT NULL, enricher TEXT NOT NULL, version TEXT NOT NULL,
+        PRIMARY KEY (exchange_seq, enricher, version)
+      );
+      CREATE TABLE IF NOT EXISTS pointers (
+        exchange_seq INTEGER NOT NULL, kind TEXT NOT NULL, target TEXT NOT NULL, relation TEXT NOT NULL,
+        PRIMARY KEY (exchange_seq, kind, target, relation)
+      );
+      CREATE INDEX IF NOT EXISTS pointers_target ON pointers(kind, target);
+      CREATE TABLE IF NOT EXISTS labels (
+        exchange_seq INTEGER NOT NULL, version TEXT NOT NULL,
+        p_decision REAL NOT NULL, p_unresolved REAL NOT NULL, topic TEXT NOT NULL, topic_probs TEXT NOT NULL,
+        PRIMARY KEY (exchange_seq, version)
+      );
     `);
     // Stores built before content_key existed: add and fill it once.
     const columns = this.db.prepare("PRAGMA table_info(exchanges)").all() as { name: string }[];
@@ -273,6 +294,110 @@ export class Store {
     return rows.map(fromRow);
   }
 
+  // ---- pointers ------------------------------------------------------------------------
+
+  /** Exchange seqs the enricher hasn't processed at this version, oldest first. */
+  pending(enricher: string, version: string, limit: number): StoredExchange[] {
+    const rows = this.db
+      .prepare(
+        `SELECT e.* FROM exchanges e WHERE NOT EXISTS
+           (SELECT 1 FROM enrichments n WHERE n.exchange_seq = e.seq AND n.enricher = ? AND n.version = ?)
+         ORDER BY e.seq LIMIT ?`,
+      )
+      .all(enricher, version, limit) as Row[];
+    return rows.map(fromRow);
+  }
+
+  /** Stores each exchange's pointers and marks it processed. */
+  addPointers(version: string, items: { seq: number; pointers: Pointer[] }[]) {
+    const insert = this.db.prepare("INSERT OR IGNORE INTO pointers (exchange_seq, kind, target, relation) VALUES (?, ?, ?, ?)");
+    const mark = this.db.prepare("INSERT OR IGNORE INTO enrichments (exchange_seq, enricher, version) VALUES (?, 'pointers', ?)");
+    this.db.transaction(() => {
+      for (const { seq, pointers } of items) {
+        for (const p of pointers) insert.run(seq, p.kind, p.target, p.relation);
+        mark.run(seq, version);
+      }
+    })();
+  }
+
+  /** Every exchange pointing at a file, commit, URL or PR, oldest first. */
+  refs(input: string, limit = 100): (StoredExchange & { relation: string; target: string })[] {
+    const q = refQuery(input);
+    // Commits match by prefix either way: a short SHA finds the full one and vice versa.
+    const where =
+      q.kind === "commit"
+        ? "p.kind = 'commit' AND (p.target LIKE @like OR @exact LIKE p.target || '%')"
+        : "p.kind = @kind AND (p.target = @exact OR p.target LIKE @like)";
+    const rows = this.db
+      .prepare(
+        `SELECT e.*, p.relation, p.target FROM pointers p JOIN exchanges e ON e.seq = p.exchange_seq
+         WHERE ${where} GROUP BY e.seq ORDER BY e.at LIMIT @limit`,
+      )
+      .all({ ...q, limit }) as (Row & { relation: string; target: string })[];
+    return rows.map((r) => ({ ...fromRow(r), relation: r.relation, target: r.target }));
+  }
+
+  /** Sessions sharing the most pointer targets with `session`. */
+  relatedSessions(session: string, limit = 5): { session: string; shared: number }[] {
+    return this.db
+      .prepare(
+        `WITH mine AS (SELECT DISTINCT p.kind, p.target FROM pointers p JOIN exchanges e ON e.seq = p.exchange_seq WHERE e.session = ?)
+         SELECT e.session, COUNT(DISTINCT p.kind || p.target) shared
+         FROM pointers p JOIN mine m ON m.kind = p.kind AND m.target = p.target JOIN exchanges e ON e.seq = p.exchange_seq
+         WHERE e.session != ? GROUP BY e.session ORDER BY shared DESC LIMIT ?`,
+      )
+      .all(session, session, limit) as { session: string; shared: number }[];
+  }
+
+  // ---- labels --------------------------------------------------------------------------
+
+  /** Embedded exchanges with no labels for this model version. */
+  unlabelled(version: string, embedderId: string, limit: number): number[] {
+    const rows = this.db
+      .prepare(
+        `SELECT e.seq FROM exchanges e
+         WHERE EXISTS (SELECT 1 FROM chunks c WHERE c.exchange_seq = e.seq AND c.model = ?)
+           AND NOT EXISTS (SELECT 1 FROM labels l WHERE l.exchange_seq = e.seq AND l.version = ?)
+         ORDER BY e.seq LIMIT ?`,
+      )
+      .all(embedderId, version, limit) as { seq: number }[];
+    return rows.map((r) => r.seq);
+  }
+
+  /** An exchange as one vector: the normalised mean of its chunk vectors. */
+  exchangeVector(seq: number, embedderId: string): Float32Array | undefined {
+    const rows = this.db
+      .prepare(`SELECT v.embedding FROM chunks c JOIN chunk_vectors v ON v.rowid = c.id WHERE c.exchange_seq = ? AND c.model = ?`)
+      .all(seq, embedderId) as { embedding: Buffer }[];
+    if (rows.length === 0) return undefined;
+    const mean = new Float32Array(this.dims);
+    for (const { embedding } of rows) {
+      const v = new Float32Array(embedding.buffer, embedding.byteOffset, embedding.byteLength / 4);
+      for (let i = 0; i < mean.length; i++) mean[i]! += v[i]!;
+    }
+    const norm = Math.hypot(...mean) || 1;
+    return mean.map((x) => x / norm);
+  }
+
+  addLabels(version: string, items: { seq: number; labels: Labels }[]) {
+    const insert = this.db.prepare(
+      "INSERT OR IGNORE INTO labels (exchange_seq, version, p_decision, p_unresolved, topic, topic_probs) VALUES (?, ?, ?, ?, ?, ?)",
+    );
+    this.db.transaction(() => {
+      for (const { seq, labels: l } of items) insert.run(seq, version, l.pDecision, l.pUnresolved, l.topic, JSON.stringify(l.topicProbs));
+    })();
+  }
+
+  labels(seqs: number[], version: string): Map<number, Labels> {
+    if (seqs.length === 0) return new Map();
+    const rows = this.db
+      .prepare(`SELECT * FROM labels WHERE version = ? AND exchange_seq IN (${seqs.map(() => "?").join(",")})`)
+      .all(version, ...seqs) as { exchange_seq: number; p_decision: number; p_unresolved: number; topic: string; topic_probs: string }[];
+    return new Map(
+      rows.map((r) => [r.exchange_seq, { pDecision: r.p_decision, pUnresolved: r.p_unresolved, topic: r.topic, topicProbs: JSON.parse(r.topic_probs) }]),
+    );
+  }
+
   /** The latest name each session was given. */
   sessionNames(sessions: string[]): Map<string, string> {
     const out = new Map<string, string>();
@@ -285,13 +410,16 @@ export class Store {
     return out;
   }
 
-  stats(model: string): StoreStats {
+  stats(model: string, labelVersion = ""): StoreStats {
     const one = (sql: string, ...args: unknown[]) => (this.db.prepare(sql).get(...args) as { n: number }).n;
     return {
       exchanges: one("SELECT COUNT(*) n FROM exchanges"),
       sessions: one("SELECT COUNT(DISTINCT session) n FROM exchanges"),
       embedded: one("SELECT COUNT(DISTINCT exchange_seq) n FROM chunks WHERE model = ?", model),
       chunks: one("SELECT COUNT(*) n FROM chunks WHERE model = ?", model),
+      pointers: one("SELECT COUNT(*) n FROM pointers"),
+      linked: one("SELECT COUNT(DISTINCT exchange_seq) n FROM pointers"),
+      labelled: one("SELECT COUNT(*) n FROM labels WHERE version = ?", labelVersion),
     };
   }
 
