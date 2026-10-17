@@ -67,7 +67,22 @@ interface Source {
 ```
 
 The rest of cairn only sees normalised exchanges, tagged with the source
-they came from. Claude Code first. Codex keeps local session logs too,
+they came from.
+
+**Finding the logs.** Each source has default locations and detection;
+config overrides them, and a source can have several paths (a second
+config folder, a folder synced from another machine):
+
+```toml
+[sources.claude-code]
+paths = ["~/.claude/projects", "~/work-claude/projects"]
+```
+
+- Done: Claude Code's default follows its own `CLAUDE_CONFIG_DIR`
+  (`<config dir>/projects`); `CLAUDE_PROJECTS_DIR` overrides it directly.
+- Planned: `paths` in `config.toml`; `cairn init` and the dashboard's
+  Sources screen show what was detected ("Claude Code: 404 sessions in
+  ~/.claude/projects") and let you add or change paths. Claude Code first. Codex keeps local session logs too,
 so it should be a small plug-in once its format is checked. Others
 (Gemini CLI, Cursor, Aider) follow the same interface.
 

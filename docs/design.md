@@ -43,7 +43,8 @@ the assistant's reply up to the next user message.
 
 ```
 Exchange {
-  hash          sha256 of the canonical exchange content
+  hash          sha256 of source, session, the user entry's id, and the user and
+                assistant text (the id keeps two identical "yes" replies apart)
   source        "claude-code"
   project       decoded from the transcript folder (see Findings: often uninformative)
   session       session id (+ name when the log has one)
@@ -86,7 +87,14 @@ stored, never recomputed by accident.
    catch up from saved offsets. Read only complete lines (a session may be
    mid-write).
 2. **Parse** new lines into exchanges. An exchange is complete when the
-   next user message arrives or the session goes idle.
+   next user message arrives or the session goes idle (no writes for 10
+   minutes). The exchange still in progress is re-read next time, from
+   the cursor saved at its user message. Typed user messages come as text
+   or as text-plus-image lists; tool results, slash-command echoes, task
+   notifications, meta and compaction entries are not user messages.
+   Subagent transcripts (nested folders) are skipped in v1; entries are
+   read in file order (conversation branches from edits and rewinds are
+   not followed yet).
 3. **Append** to the store if the hash is new. Same content, same hash, so
    it's skipped: ingest is idempotent.
 4. **Index:** keyword index and embedding. The embedded text is a
@@ -242,6 +250,23 @@ Each links to the full write-up in [[experiments]].
   and weak on refs. Combined: 0.79 (chosen after seeing the data, so not
   yet confirmed). For project, rules never invent one but miss misheard
   names; embeddings catch those but always guess something.
+- **First real ingest (2026-10-16).** 404 logs read in 3.7 s: 3,831
+  exchanges in 396 sessions; 2,125 of them (55%) from `.clance`, 1,342
+  from the Clance repo. A re-run reads only logs that changed and appends
+  nothing it already has. Full backfill embedded 3,831 exchanges as
+  5,727 chunks; the store is 80 MB. It took 2 h 38 min of wall-clock time
+  (rate at the end: 1.75 exchanges/s, which predicts ~40 min, so most of
+  the gap is likely the machine sleeping or busy; later exchanges are also
+  longer). A one-time cost; resumable.
+- **First real searches (2026-10-16).** Relevant results across sessions
+  (a disk-space question found today's session and two from September),
+  with four weaknesses: (1) **forked sessions duplicate history**, so the
+  same exchange returns twice, since the hash includes the session id;
+  (2) **decisions don't rank first** ("why did we pick sqlite" surfaced a
+  long docs reply and old interview talk, not the "sqlite is fine"
+  moment), the case for label boosting; (3) **project is `.clance` for
+  most results**, so project from content matters in practice; (4)
+  **snippets show an exchange's start, not the part that matched**.
 - **The agent is the ceiling.** A Claude labeller understood 119/120
   queries. In Claude Code the agent does step 1 itself.
 
@@ -296,6 +321,21 @@ Each links to the full write-up in [[experiments]].
       aliases, Laya for paraphrased intents, embeddings for misheard
       projects) on a fresh query set, since it was chosen after seeing
       the first one.
+- [x] **Fork and resume duplicates.** 38 exchanges were copied across 8
+      sessions, identical in timestamp and text. Each exchange now has a
+      `content_key` (hash of timestamp + user text + reply, without the
+      session): ingest skips copies, and search shows each key once, which
+      also covers copies stored before the fix. Trade-off: a result is
+      credited to whichever copy ranks first, and a new fork's session
+      doesn't hold its pre-fork history (the original does). Done
+      2026-10-16.
+- [x] **Snippets:** keyword hits show FTS5's matching fragment; vector
+      hits show the start of the closest chunk. Done 2026-10-16.
+- [x] **Snippet noise:** the keyword index has two columns: `text` (the
+      conversation) and `meta` (project, session name, files, commits).
+      Both are searched; snippets come from `text` only, and when the match
+      is only in `meta` the closest chunk is shown instead. Older stores
+      rebuild the index on open. Done 2026-10-16.
 - [ ] **Project from content.** Since folders don't identify projects for
       most sessions, infer it per exchange (pointers' repo paths,
       embedding similarity to project descriptions)?
@@ -303,8 +343,11 @@ Each links to the full write-up in [[experiments]].
       they go to the LLM?
 - [ ] **Exchange completeness** during long agentic turns, and the target
       chunk size for splitting (set by the eval).
-- [ ] **Subagent and sidechain transcripts:** include, and how to link
-      them to the parent session?
+- [ ] **Subagent and sidechain transcripts:** 87 nested subagent logs are
+      skipped in v1. Include them, and link them to the parent session?
+- [ ] **Conversation branches:** entries form a tree (`parentUuid`); edits
+      and rewinds branch it. v1 reads file order. Follow only the active
+      branch?
 - [ ] **Where the watcher runs:** `cairn watch` as a long-running process,
       launchd, or inside the MCP server process.
 - [ ] **Ranking:** fusion method and how strongly labels boost.

@@ -8,7 +8,18 @@ the verbatim conversation with its source. A background service (cairnd)
 runs the core; the CLI, a terminal dashboard and an MCP server are thin
 clients. Sources are plug-ins per coding agent (Claude Code first).
 
-Status: design. No code yet.
+Status: build step 1 (ingest + hybrid search) works end to end on real
+data; no daemon, labels, pointers or MCP yet. See the build order in
+docs/design.md.
+
+## Commands
+- `npm test`: unit tests on synthetic transcripts (never real sessions)
+- `npm run typecheck`
+- `npm run cairn -- index [--no-embed] [--limit N]`: read new logs, embed what's new
+- `npm run cairn -- search "<query>" [--project P] [--since DATE]`
+- `npm run cairn -- status`
+- Data lives in `~/.cairn/` (or `CAIRN_HOME`); tests use a temp dir and an
+  in-memory store.
 
 ## Docs
 
@@ -27,6 +38,8 @@ Read these before non-trivial changes:
 - An LLM writes text only to answer a question (`ask`), from retrieved
   passages, with citations. No background summarising.
 - Only conversation text goes to external services, never tool output.
+- `~/.cairn/` holds whole conversations: keep it owner-only (folder 0700,
+  files 0600).
 - Version enricher outputs (e.g. label question wording, model version) as part of their key.
 
 ## Keeping docs in sync

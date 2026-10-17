@@ -1,0 +1,12 @@
+export type { Exchange, StoredExchange } from "./types.js";
+export type { ReadResult, ReadState, Source } from "./sources/source.js";
+export { ClaudeCodeSource } from "./sources/claude-code.js";
+export { Store } from "./store.js";
+export { contentKey } from "./store.js";
+export type { Cursor, Match, StoreStats } from "./store.js";
+export { OllamaEmbedder, QUERY_INSTRUCTION } from "./embed.js";
+export type { Embedder } from "./embed.js";
+export { chunkTexts, header, split } from "./chunk.js";
+export { embedPending, ingest, IDLE_MS } from "./ingest.js";
+export { fuse, search, toFtsQuery } from "./search.js";
+export type { Hit, SearchOptions, SessionGroup } from "./search.js";

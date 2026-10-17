@@ -1,0 +1,33 @@
+{
+  "name": "@damiensmith1/cairn",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Searchable memory for agent sessions: watch, store, embed and resurface what was said and decided.",
+  "license": "MIT",
+  "author": "Damien Smith",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "cairn": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "cairn": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "sqlite-vec": "^0.1.9"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.6.5",
+    "tsup": "^8.5.1",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
+  }
+}
