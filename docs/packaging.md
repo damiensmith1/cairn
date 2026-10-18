@@ -275,10 +275,10 @@ from the core, so cairnd and the in-process fallback both write it.
   plainlog writes (plainlog creates files with default permissions and
   doesn't create folders). A failed write loses a line, never a search.
 - **No rotation yet** (open question); lines are ~300 bytes.
-- **plainlog note:** each write leaves its 1 s timeout timer running,
-  which holds a short-lived process open ~1 s after its last log line.
-  Only the CLI's in-process fallback (cairnd stopped) notices. A fix
-  belongs in plainlog (clear the timer after the write).
+- **plainlog note:** up to 1.0.2 each write left its 1 s timeout timer
+  running, holding a short-lived process open ~1 s after its last log
+  line (only the CLI's in-process fallback noticed). Found here, fixed in
+  plainlog 1.0.3, which cairn now requires: exit 4 ms after a write.
 
 ## Live view (built 2026-10-18)
 
