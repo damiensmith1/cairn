@@ -11,20 +11,29 @@ export interface WatchOptions {
   sweepMs?: number;
 }
 
-/** Calls `onChange` when a session log under `roots` changes, and on every sweep. Returns a stop function. */
-export function watchSources(roots: string[], onChange: () => void, options: WatchOptions = {}): () => void {
+/**
+ * Calls `onChange` with the logs that changed (paths relative to their root) once writes settle,
+ * and with "sweep" on every sweep. Returns a stop function.
+ */
+export function watchSources(roots: string[], onChange: (reason: "change" | "sweep", files: string[]) => void, options: WatchOptions = {}): () => void {
   const debounceMs = options.debounceMs ?? 2000;
   let timer: NodeJS.Timeout | undefined;
-  const changed = () => {
+  const files = new Set<string>();
+  const changed = (file: string) => {
+    files.add(file);
     clearTimeout(timer);
-    timer = setTimeout(onChange, debounceMs);
+    timer = setTimeout(() => {
+      const batch = [...files];
+      files.clear();
+      onChange("change", batch);
+    }, debounceMs);
   };
   const watchers: FSWatcher[] = [];
   for (const root of roots) {
     try {
       // Recursive watching uses FSEvents on macOS; a missing folder is left to the sweep.
       const w = watch(root, { recursive: true }, (_event, file) => {
-        if (!file || String(file).endsWith(".jsonl")) changed();
+        if (!file || String(file).endsWith(".jsonl")) changed(file ? String(file) : "");
       });
       w.on("error", () => w.close());
       watchers.push(w);
@@ -32,7 +41,7 @@ export function watchSources(roots: string[], onChange: () => void, options: Wat
       // folder doesn't exist yet
     }
   }
-  const sweep = setInterval(onChange, options.sweepMs ?? 60_000);
+  const sweep = setInterval(() => onChange("sweep", []), options.sweepMs ?? 60_000);
   return () => {
     clearTimeout(timer);
     clearInterval(sweep);

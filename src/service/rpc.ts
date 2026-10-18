@@ -2,13 +2,20 @@ import { chmodSync, existsSync, unlinkSync } from "node:fs";
 import { createConnection, createServer } from "node:net";
 import type { Socket } from "node:net";
 import type { Api, RefRow, RelatedRow, SearchRequest, SearchResponse, StatusResponse } from "./api.js";
+import type { CairnEvent } from "./events.js";
 
 /**
  * JSON-RPC 2.0 over a Unix socket, one JSON message per line. A socket rather than a localhost
  * port: no port to collide, and the file's permissions (owner-only) decide who can connect.
  */
 
-type Handler = (params: any) => Promise<unknown>;
+/** Lets a handler push notifications to the connection that called it, until it closes. */
+export interface Connection {
+  notify(method: string, params: unknown): void;
+  onClose(fn: () => void): void;
+}
+
+type Handler = (params: any, connection: Connection) => Promise<unknown>;
 
 export class AlreadyRunning extends Error {}
 
@@ -35,6 +42,10 @@ export async function serve(path: string, handlers: Record<string, Handler>): Pr
     const reply = (msg: unknown) => {
       if (!socket.destroyed) socket.write(`${JSON.stringify(msg)}\n`);
     };
+    const connection: Connection = {
+      notify: (method, params) => reply({ jsonrpc: "2.0", method, params }),
+      onClose: (fn) => socket.once("close", fn),
+    };
     const handle = async (line: string) => {
       let msg: { id?: unknown; method?: unknown; params?: unknown };
       try {
@@ -46,7 +57,7 @@ export async function serve(path: string, handlers: Record<string, Handler>): Pr
       const handler = Object.hasOwn(handlers, method) ? handlers[method] : undefined;
       if (!handler) return reply({ jsonrpc: "2.0", id: msg.id ?? null, error: { code: -32601, message: `unknown method: ${method}` } });
       try {
-        reply({ jsonrpc: "2.0", id: msg.id ?? null, result: (await handler(msg.params)) ?? null });
+        reply({ jsonrpc: "2.0", id: msg.id ?? null, result: (await handler(msg.params, connection)) ?? null });
       } catch (e) {
         reply({ jsonrpc: "2.0", id: msg.id ?? null, error: { code: -32000, message: e instanceof Error ? e.message : String(e) } });
       }
@@ -88,6 +99,7 @@ export async function serve(path: string, handlers: Record<string, Handler>): Pr
 export class RpcClient {
   private nextId = 1;
   private readonly waiting = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+  private readonly listeners = new Set<(method: string, params: unknown) => void>();
 
   constructor(private readonly socket: Socket) {
     socket.setEncoding("utf8");
@@ -95,11 +107,15 @@ export class RpcClient {
     socket.on("data", (chunk: string) => {
       buffer += chunk;
       for (let i = buffer.indexOf("\n"); i >= 0; i = buffer.indexOf("\n")) {
-        const msg = JSON.parse(buffer.slice(0, i)) as { id: number; result?: unknown; error?: { message: string } };
+        const msg = JSON.parse(buffer.slice(0, i)) as { id?: number; method?: string; params?: unknown; result?: unknown; error?: { message: string } };
         buffer = buffer.slice(i + 1);
-        const w = this.waiting.get(msg.id);
+        if (msg.id === undefined && msg.method) {
+          for (const listener of this.listeners) listener(msg.method, msg.params);
+          continue;
+        }
+        const w = this.waiting.get(msg.id!);
         if (!w) continue;
-        this.waiting.delete(msg.id);
+        this.waiting.delete(msg.id!);
         if (msg.error) w.reject(new Error(msg.error.message));
         else w.resolve(msg.result);
       }
@@ -110,6 +126,16 @@ export class RpcClient {
     };
     socket.on("close", fail);
     socket.on("error", fail);
+  }
+
+  /** Notifications cairnd pushes (no reply expected). */
+  onNotification(listener: (method: string, params: unknown) => void) {
+    this.listeners.add(listener);
+  }
+
+  /** Called when the connection to cairnd ends. */
+  onClose(fn: () => void) {
+    this.socket.once("close", fn);
   }
 
   call<T>(method: string, params?: unknown): Promise<T> {
@@ -154,5 +180,13 @@ export class RemoteApi implements Api {
   status = () => this.client.call<StatusResponse>("status");
   /** Asks cairnd to index now. Returns at once; `busy` means a run was already going. */
   trigger = () => this.client.call<{ scheduled: boolean; busy: boolean }>("trigger");
+  /** Streams cairnd's events to `listener`; resolves with the recent ones. */
+  subscribe = async (listener: (e: CairnEvent) => void): Promise<CairnEvent[]> => {
+    this.client.onNotification((method, params) => {
+      if (method === "event") listener(params as CairnEvent);
+    });
+    return this.client.call<CairnEvent[]>("subscribe");
+  };
+  onClose = (fn: () => void) => this.client.onClose(fn);
   close = () => this.client.close();
 }

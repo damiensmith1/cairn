@@ -14,6 +14,7 @@ import { ClaudeCodeSource } from "../sources/claude-code.js";
 import type { Source } from "../sources/source.js";
 import { Store } from "../store.js";
 import type { Api, DaemonInfo, IndexResult, RefRow, RelatedRow, SearchRequest, SearchResponse, StatusResponse } from "./api.js";
+import type { EventBus } from "./events.js";
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e)).split("\n")[0]!;
 
@@ -26,6 +27,8 @@ export class Core implements Api {
   daemon?: DaemonInfo;
   /** Unload the reranker after this long without a search (cairnd sets it; one-shot CLIs don't need it). */
   rerankerIdleMs?: number;
+  /** Where cairnd publishes what it's doing; one-shot CLIs leave it unset. */
+  events?: EventBus;
   private idleTimer: NodeJS.Timeout | undefined;
 
   constructor(
@@ -52,19 +55,28 @@ export class Core implements Api {
 
   /** Reads what's new, then links, embeds and labels it. Safe to run any time; it only adds. */
   async index(options: { embed?: boolean; limit?: number } = {}, onProgress?: (p: EmbedProgress) => void): Promise<IndexResult> {
+    const t0 = Date.now();
     const r = await ingest(this.store, this.sources);
+    if (r.changed) this.events?.emit({ type: "read", files: r.files, changed: r.changed, appended: r.appended, ms: Date.now() - t0 });
     const linked = extractPending(this.store);
+    if (linked) this.events?.emit({ type: "pointers", exchanges: linked });
     const result: IndexResult = { ...r, linked, embedded: 0, chunks: 0, labelled: 0, labels: Boolean(this.labels) };
     if (options.embed === false) return result;
     const problem = await this.embedder.problem?.();
     if (problem) return { ...result, embedError: problem };
+    const t1 = Date.now();
     const p = await embedPending(this.store, this.embedder, {
       ...(options.limit !== undefined ? { limit: options.limit } : {}),
-      ...(onProgress ? { onProgress } : {}),
+      onProgress: (progress) => {
+        onProgress?.(progress);
+        this.events?.emit({ type: "embedding", ...progress });
+      },
     });
     result.embedded = p.done;
     result.chunks = p.chunks;
+    if (p.done) this.events?.emit({ type: "embedded", exchanges: p.done, chunks: p.chunks, ms: Date.now() - t1 });
     if (this.labels) result.labelled = labelPending(this.store, this.labels, this.embedder.id);
+    if (result.labelled) this.events?.emit({ type: "labelled", exchanges: result.labelled });
     return result;
   }
 
@@ -83,15 +95,23 @@ export class Core implements Api {
         // Name the real cause (Ollama down, model missing) instead of a fetch error.
         throw new Error((await this.embedder.problem?.()) ?? message(e));
       });
-    if (req.rerank === false || !this.reranker) return { groups: await run(options), reranked: false, labels };
+    const started = Date.now();
+    const done = (res: SearchResponse) => {
+      const hits = res.groups.reduce((n, g) => n + g.hits.length, 0);
+      this.events?.emit({ type: "search", query: req.query, hits, reranked: res.reranked, ms: Date.now() - started });
+      return res;
+    };
+    if (req.rerank === false || !this.reranker) return done({ groups: await run(options), reranked: false, labels });
+    const wasLoaded = this.reranker.loaded;
     try {
       const groups = await run({ ...options, reranker: this.reranker });
+      if (!wasLoaded && this.reranker.loaded) this.events?.emit({ type: "reranker", state: "loaded" });
       this.touchReranker();
-      return { groups, reranked: true, labels };
+      return done({ groups, reranked: true, labels });
     } catch (e) {
       // Reranking failed (e.g. offline before its first download): answer without it. If the
       // embedder is what failed, this throws the same error again.
-      return { groups: await run(options), reranked: false, rerankError: message(e), labels };
+      return done({ groups: await run(options), reranked: false, rerankError: message(e), labels });
     }
   }
 
@@ -129,7 +149,9 @@ export class Core implements Api {
   private touchReranker() {
     if (!this.rerankerIdleMs || !this.reranker?.unload) return;
     clearTimeout(this.idleTimer);
-    this.idleTimer = setTimeout(() => void this.reranker?.unload?.(), this.rerankerIdleMs);
+    this.idleTimer = setTimeout(() => {
+      void this.reranker?.unload?.().then(() => this.events?.emit({ type: "reranker", state: "unloaded" }));
+    }, this.rerankerIdleMs);
     this.idleTimer.unref();
   }
 

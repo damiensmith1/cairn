@@ -332,7 +332,8 @@ Each links to the full write-up in [[experiments]].
    query understanding. Codex support much later. See [[packaging]].
    (a) built 2026-10-18: `cairn daemon`, `cairn service start|stop|status`
    (launchd), JSON-RPC over `~/.cairn/cairnd.sock`, the CLI as a thin
-   client with an in-process fallback.
+   client with an in-process fallback; `cairn live` shows its status and
+   activity as it happens.
 4. **Retrieval eval:** labelled questions with known answer sessions;
    tune chunking, fusion, boosts, the reranker and link expansion against
    it. Labels drafted by an LLM and checked by a second, blind LLM

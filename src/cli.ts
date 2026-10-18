@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { join } from "node:path";
 import { parseArgs } from "node:util";
+import { runLive } from "./live.js";
 import { labelModelPath, logDir, socketPath } from "./paths.js";
 import type { Intent, SessionGroup } from "./search.js";
 import type { Api } from "./service/api.js";
@@ -21,6 +22,7 @@ const USAGE = `cairn: searchable memory for agent sessions
   cairn status                           what's stored and indexed, and whether cairnd is running
   cairn index [--no-embed] [--limit N]   catch up now (asks cairnd if it's running)
 
+  cairn live                             watch cairnd work: status and activity as it happens
   cairn service start|stop|status        run cairnd in the background, at every login
   cairn daemon                           run cairnd in the foreground
 `;
@@ -250,6 +252,7 @@ const commands: Record<string, (args: string[]) => Promise<void>> = {
   status,
   daemon,
   service,
+  live: () => runLive(),
 };
 const run = command ? commands[command] : undefined;
 if (!run) {

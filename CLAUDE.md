@@ -26,6 +26,7 @@ docs/design.md.
 - `npm run train-labels`: trains the label probes into `~/.cairn/models/labels.json`
   from labelled exchanges (the spike's data in `~/.cairn/spikes/decisions/`)
 - `npm run cairn -- status`
+- `npm run cairn -- live`: watch cairnd's status and activity as it happens
 - `npm run cairn -- daemon` runs cairnd in the foreground; `service start|stop|status`
   installs it as a LaunchAgent (this changes the machine: ask before running it on the
   author's Mac). Other commands talk to cairnd over `~/.cairn/cairnd.sock` when it's

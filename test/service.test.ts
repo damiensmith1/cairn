@@ -9,6 +9,7 @@ import { startDaemon } from "../src/service/daemon.js";
 import { plist } from "../src/service/launchd.js";
 import { Coalescer } from "../src/service/queue.js";
 import { AlreadyRunning, connect, RemoteApi, serve } from "../src/service/rpc.js";
+import { Feed, formatEvent } from "../src/live.js";
 import { assistant, FakeEmbedder, projectsDir, text, user } from "./helpers.js";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -112,5 +113,68 @@ describe("launchd plist", () => {
     expect(xml).toMatch(/<key>ProcessType<\/key>\s*<string>Standard<\/string>/);
     expect(xml).toMatch(/<key>SuccessfulExit<\/key>\s*<false\/>/);
     expect(xml).toMatch(/<key>RunAtLoad<\/key>\s*<true\/>/);
+  });
+});
+
+describe("live events", () => {
+  it("streams what cairnd does to subscribers, with recent history for late joiners", async () => {
+    const { root, files } = projectsDir({ s: [user("which storage?"), assistant([text("SQLite.")])] });
+    const old = Date.now() / 1000 - 3600;
+    utimesSync(files.s!, old, old);
+    const embedder = new FakeEmbedder();
+    const core = new Core(new Store(":memory:", embedder.dims), embedder, [new ClaudeCodeSource(root)], undefined, undefined);
+    const socket = socketIn();
+    const daemon = await startDaemon(core, { socket, debounceMs: 50, sweepMs: 60_000, log: () => {} });
+    await daemon.indexNow();
+    const api = new RemoteApi((await connect(socket))!);
+    try {
+      const seen: string[] = [];
+      const history = await api.subscribe((e) => seen.push(e.type));
+      // Joined after the first run: the history has it.
+      expect(history.map((e) => e.type)).toEqual(expect.arrayContaining(["started", "read", "embedded", "index-done"]));
+      await api.search({ query: "storage", rerank: false });
+      appendFileSync(files.s!, [user("and embeddings?"), assistant([text("Qwen3.")]), user("ok")].map((e) => JSON.stringify(e)).join("\n") + "\n");
+      for (let i = 0; i < 50 && !seen.includes("embedded"); i++) await sleep(100);
+      expect(seen).toEqual(expect.arrayContaining(["search", "changed", "index-start", "read", "embedded", "index-done"]));
+    } finally {
+      api.close();
+      await daemon.stop();
+    }
+  });
+
+  it("formats events as feed lines, leaving sweeps and run starts to the header", () => {
+    const at = new Date().toISOString();
+    expect(formatEvent({ type: "search", at, query: "sqlite", hits: 3, reranked: true, ms: 380 })?.text).toBe('"sqlite" · 3 hits · reranked · 380 ms');
+    expect(formatEvent({ type: "embedded", at, exchanges: 1, chunks: 2, ms: 410 })?.text).toBe("1 exchange · 2 chunks · 410 ms");
+    expect(formatEvent({ type: "embedding", at, done: 5, total: 10, chunks: 6 })?.key).toBe("embedding");
+    expect(formatEvent({ type: "sweep", at })).toBeUndefined();
+    const quiet = { files: 404, changed: 0, appended: 0, linked: 0, embedded: 0, chunks: 0, labelled: 0, labels: false };
+    expect(formatEvent({ type: "index-done", at, ms: 12, result: quiet })).toBeUndefined();
+  });
+});
+
+describe("live feed", () => {
+  const at = new Date().toISOString();
+  const changed = { type: "changed" as const, at, files: [{ file: "p/s1.jsonl", session: "s1", name: "Clance Chat" }] };
+  const read = (appended: number) => ({ type: "read" as const, at, files: 404, changed: 1, appended, ms: 40 });
+
+  it("folds a session being written into one line that counts updates", () => {
+    const feed = new Feed();
+    for (let i = 0; i < 3; i++) {
+      feed.push(changed);
+      feed.push(read(0));
+    }
+    expect(feed.lines).toHaveLength(1);
+    expect(feed.lines[0]).toMatchObject({ kind: "writing", text: "Clance Chat · exchange in progress (3 updates)" });
+  });
+
+  it("shows the exchange once it completes, naming the session", () => {
+    const feed = new Feed();
+    feed.push(changed);
+    feed.push(read(0));
+    feed.push(changed);
+    feed.push(read(1));
+    expect(feed.lines.map((l) => l.kind)).toEqual(["writing", "read"]);
+    expect(feed.lines[1]!.text).toBe("1 new exchange from Clance Chat · 40 ms");
   });
 });

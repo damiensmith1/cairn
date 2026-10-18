@@ -167,6 +167,7 @@ cairn brief <session>         extractive session brief
 cairn ask <question>          free text; answers with citations (LLM)
 cairn sources                 list / enable / disable sources
 cairn status                  index, backlog, model health
+cairn live                    cairnd's status and activity, as it happens
 cairn rebuild [index]         rebuild indexes or labels from the store
 cairn service start|stop|status
 cairn mcp                     MCP server over stdio (for agents)
@@ -174,6 +175,22 @@ cairn mcp                     MCP server over stdio (for agents)
 
 Explicit commands carry their intent, so only `search` and `ask` need
 query understanding.
+
+## Live view (built 2026-10-18)
+
+`cairn live` subscribes to cairnd's event stream over the socket (a
+`subscribe` call, then JSON-RPC notifications) and shows a status header
+(pid, uptime, idle / indexing / embedding progress, Ollama, reranker;
+exchanges, embedded, backlog, pointers, labels; last sweep and index)
+above a feed: logs that changed, exchanges read, embedded and labelled,
+searches with their latency, the reranker loading and unloading, errors.
+Quiet sweeps update the header instead of the feed, and a session being
+written (a change every few seconds while its exchange is still in
+progress) folds into one line that counts updates, `writing Clance Chat ·
+exchange in progress (12 updates)`, until the exchange completes. cairnd keeps the last
+200 events, so a late joiner sees recent history. It reconnects when
+cairnd restarts; piped, it streams plain lines. Plain ANSI, no new
+dependency; it can become a panel of the dashboard.
 
 ## Dashboard (v1 scope)
 
