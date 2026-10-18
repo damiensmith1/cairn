@@ -150,3 +150,38 @@ describe("keyword snippets", () => {
     expect(hit!.snippet).not.toContain("/r/src/match");
   });
 });
+
+describe("reranking", () => {
+  it("reorders the top candidates by the reranker's scores and cuts to the limit", async () => {
+    const { root, files } = projectsDir({
+      s: [
+        user("tell me about threshold tuning"),
+        assistant([text("Threshold tuning: we kept 0.85.")]),
+        user("threshold again, for the eval"),
+        assistant([text("The eval sweeps the threshold.")]),
+        user("unrelated threshold mention"),
+        assistant([text("A threshold appears here too, the answer is in this one: grid search.")]),
+      ],
+    });
+    const old = Date.now() / 1000 - 3600;
+    utimesSync(files.s!, old, old);
+    const embedder = new FakeEmbedder();
+    const store = new Store(":memory:", embedder.dims);
+    await ingest(store, [new ClaudeCodeSource(root)]);
+    await embedPending(store, embedder);
+    // A fake reranker that prefers candidates mentioning "grid search".
+    const seen: string[][] = [];
+    const reranker = {
+      id: "fake",
+      score: async (_q: string, docs: string[]) => {
+        seen.push(docs);
+        return docs.map((d) => (d.includes("grid search") ? 1 : 0));
+      },
+    };
+    const hits = (await search(store, embedder, "threshold", { limit: 2, reranker })).flatMap((g) => g.hits);
+    expect(seen[0]).toHaveLength(3); // it saw the top 10 candidates (all 3 here), not just the limit
+    expect(hits).toHaveLength(2);
+    expect(hits[0]!.exchange.assistant).toContain("grid search");
+    expect(hits[0]!.rerankScore).toBe(1);
+  });
+});

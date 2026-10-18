@@ -10,6 +10,39 @@ Spikes run to settle [[design]] questions with data. Newest first. Raw
 data (conversation excerpts, labels, scores) stays outside the repo in
 `~/.cairn/spikes/`, since it's the author's own conversations.
 
+## 2026-10-18 · Reranker wired into cairn: end to end
+
+**What changed.** `search()` takes a `reranker`; it collects at least the
+top 10 candidates, reranks them with MiniLM-L6 (int8, 512 tokens, 4
+threads, `src/rerank.ts`), then cuts to the limit and groups by session.
+It's on by default in `cairn search|decisions|unresolved` (`--no-rerank`
+skips it; it was a `--rerank` flag when measured). Eval mode:
+`npm run eval:retrieval -- reranked`.
+
+**Quality through the real code path:**
+
+| | tune R@1 | tune MRR | test R@1 | test R@5 | test MRR |
+|---|---|---|---|---|---|
+| Hybrid | 0.62 | 0.72 | 0.58 | 0.87 | 0.71 |
+| **Hybrid + rerank** | **0.66** | **0.76** | **0.72** | **0.87** | **0.79** |
+
+Tune MRR is 0.02 below the offline measurement (0.78), because search
+groups results by session after reranking, which reorders a few; test is
+identical. Within noise.
+
+**Latency on the M2:**
+
+| | Plain | With rerank |
+|---|---|---|
+| Inside one process, warm (as cairnd will run) | 79 ms median | 382 ms median, 429 ms max |
+| Built CLI (`node dist/cli.js`), Ollama warm | 0.18 s | 0.58–0.64 s |
+| Built CLI, first run (cold caches) | 1.06 s | 0.91 s |
+| CLI under `tsx` (development) | 0.67 s | 1.30 s |
+
+Loading the reranker from disk takes ~0.3 s; in the CLI it's paid on
+every search, in cairnd once. Every built-CLI and in-process case meets
+the under-a-second target once caches are warm.
+
 ## 2026-10-18 · MiniLM reranker in Node (ONNX, CPU): passes
 
 **Question:** the decided reranker, MiniLM-L6 (`Xenova/ms-marco-MiniLM-L-6-v2`)

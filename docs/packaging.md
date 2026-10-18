@@ -143,7 +143,7 @@ Qwen3 uses ~1.5 GB while embedding; Laya ~0.6–1.8 GB when loaded.
 ```
 cairn                         dashboard
 cairn init                    first-run setup (re-runnable)
-cairn search <query>          hybrid search
+cairn search <query>          hybrid search, top 10 reranked with MiniLM (--no-rerank to skip)
 cairn decisions <query>       intent: decision (labels boost decisions)
 cairn unresolved <query>      intent: open questions ("open" is the passage-opening operation)
 cairn refs <file|sha|pr|url>  pointer lookup

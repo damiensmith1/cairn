@@ -6,6 +6,7 @@ import { OllamaEmbedder } from "./embed.js";
 import { embedPending, extractPending, ingest } from "./ingest.js";
 import { labelPending, loadLabelModel } from "./labels.js";
 import { cairnHome, claudeProjectsDir, dbPath } from "./paths.js";
+import { OnnxReranker } from "./rerank.js";
 import { search } from "./search.js";
 import type { Intent, SessionGroup } from "./search.js";
 import { ClaudeCodeSource } from "./sources/claude-code.js";
@@ -18,6 +19,7 @@ const USAGE = `cairn: searchable memory for agent sessions
   cairn decisions <query>                search, decisions first
   cairn unresolved <query>               search, open questions first
      options: --project P  --since YYYY-MM-DD  --topic T  --limit N
+              --no-rerank  skip reordering the top 10 with the cross-encoder (faster, worse ranking)
   cairn refs <file|sha|#pr|url>          every exchange that edited or mentioned it, oldest first
   cairn related <session>                sessions sharing the most files, commits and links
   cairn status                           what's stored and indexed
@@ -88,7 +90,7 @@ function print(groups: SessionGroup[]) {
     console.log(`\n${bold(cyan(g.project))} · ${bold(g.sessionName ?? g.session.slice(0, 8))} ${dim(`· ${first.at.slice(0, 10)} · ${g.session}`)}`);
     for (const h of g.hits) {
       const x = h.exchange;
-      console.log(`  ${dim(`${x.at.slice(0, 16).replace("T", " ")} [${h.via.join("+")}]`)}`);
+      console.log(`  ${dim(`${x.at.slice(0, 16).replace("T", " ")} [${h.via.join("+")}${h.rerankScore !== undefined ? ", reranked" : ""}]`)}`);
       console.log(`  you    ${oneLine(x.user, 160)}`);
       console.log(`  match  ${dim(oneLine(h.snippet, 280))}`);
       console.log(`  ${dim(`${x.location}:${x.offset}`)}`);
@@ -100,7 +102,13 @@ const searchAs = (intent?: Intent) => async (args: string[]) => {
   const { values, positionals } = parseArgs({
     args,
     allowPositionals: true,
-    options: { project: { type: "string" }, since: { type: "string" }, topic: { type: "string" }, limit: { type: "string" } },
+    options: {
+      project: { type: "string" },
+      since: { type: "string" },
+      topic: { type: "string" },
+      limit: { type: "string" },
+      "no-rerank": { type: "boolean" },
+    },
   });
   const query = positionals.join(" ").trim();
   if (!query) return fail(USAGE);
@@ -111,16 +119,23 @@ const searchAs = (intent?: Intent) => async (args: string[]) => {
     if ((intent === "decision" || intent === "open" || values.topic) && !labels) {
       console.log(dim(`no label model at ${labelModelPath()}: showing plain search`));
     }
-    print(
-      await search(store, embedder, query, {
-        ...(values.project ? { project: values.project } : {}),
-        ...(values.since ? { since: values.since } : {}),
-        ...(values.topic ? { topic: values.topic } : {}),
-        ...(intent ? { intent } : {}),
-        ...(labels ? { labels } : {}),
-        limit: values.limit ? Number(values.limit) : 10,
-      }),
-    );
+    const options = {
+      ...(values.project ? { project: values.project } : {}),
+      ...(values.since ? { since: values.since } : {}),
+      ...(values.topic ? { topic: values.topic } : {}),
+      ...(intent ? { intent } : {}),
+      ...(labels ? { labels } : {}),
+      limit: values.limit ? Number(values.limit) : 10,
+    };
+    if (values["no-rerank"]) return print(await search(store, embedder, query, options));
+    // Reranking is on by default. If the reranker can't load (e.g. offline before its first
+    // download), search still answers, without it.
+    try {
+      print(await search(store, embedder, query, { ...options, reranker: new OnnxReranker() }));
+    } catch (e) {
+      console.log(dim(`reranker unavailable (${(e as Error).message.split("\n")[0]}); showing unreranked results`));
+      print(await search(store, embedder, query, options));
+    }
   } finally {
     store.close();
   }

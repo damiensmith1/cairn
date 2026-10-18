@@ -1,5 +1,7 @@
 import type { Embedder } from "./embed.js";
 import type { LabelModel } from "./labels.js";
+import { RERANK_CHARS, RERANK_TOP } from "./rerank.js";
+import type { Reranker } from "./rerank.js";
 import { contentKey } from "./store.js";
 import type { Match, Store } from "./store.js";
 import type { StoredExchange } from "./types.js";
@@ -59,6 +61,10 @@ export interface SearchOptions {
    */
   boostMode?: "multiply" | "percentile" | "confident";
   boost?: number;
+  /** Reorders the top candidates by reading the question with each one. */
+  reranker?: Reranker;
+  /** How many top candidates the reranker sees (default 10). */
+  rerankTop?: number;
 }
 
 export interface Hit {
@@ -67,6 +73,8 @@ export interface Hit {
   via: ("keyword" | "vector")[];
   /** The part that matched: a keyword fragment, or the start of the closest chunk. */
   snippet: string;
+  /** The reranker's relevance score, when the hit was reranked. */
+  rerankScore?: number;
 }
 
 export interface SessionGroup {
@@ -110,6 +118,9 @@ export async function search(store: Store, embedder: Embedder, query: string, op
   const byVector = new Map(nearest.map((m): [number, Match] => [m.seq, m]));
   const seen = new Set<string>();
   const hits: Hit[] = [];
+  // The reranker reorders the top candidates, so collect at least that many before cutting to limit.
+  const rerankTop = options.reranker ? (options.rerankTop ?? RERANK_TOP) : 0;
+  const wanted = Math.max(limit, rerankTop);
   for (const seq of ranked) {
     const x = bySeq.get(seq);
     if (!x) continue;
@@ -128,8 +139,20 @@ export async function search(store: Store, embedder: Embedder, query: string, op
     const fragment = byKeyword.get(seq)?.snippet;
     const snippet = (fragment?.includes("«") ? fragment : undefined) ?? byVector.get(seq)?.snippet ?? fragment ?? x.assistant;
     hits.push({ exchange: x, score: scores.get(seq)!, via, snippet });
-    if (hits.length >= limit) break;
+    if (hits.length >= wanted) break;
   }
+
+  if (options.reranker && hits.length > 1) {
+    const top = hits.slice(0, rerankTop);
+    const rerankScores = await options.reranker.score(
+      query,
+      top.map((h) => `${h.exchange.user}\n${h.exchange.assistant}`.slice(0, RERANK_CHARS)),
+    );
+    top.forEach((h, i) => (h.rerankScore = rerankScores[i]));
+    top.sort((a, b) => b.rerankScore! - a.rerankScore!);
+    hits.splice(0, top.length, ...top);
+  }
+  hits.length = Math.min(hits.length, limit);
 
   const names = store.sessionNames([...new Set(hits.map((h) => h.exchange.session))]);
   const groups = new Map<string, SessionGroup>();

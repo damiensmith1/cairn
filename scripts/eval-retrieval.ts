@@ -16,6 +16,7 @@ import { OllamaEmbedder } from "../src/embed.js";
 import type { Embedder } from "../src/embed.js";
 import { loadLabelModel } from "../src/labels.js";
 import { cairnHome, dbPath } from "../src/paths.js";
+import { OnnxReranker } from "../src/rerank.js";
 import { search, toFtsQuery } from "../src/search.js";
 import type { Intent, SearchOptions } from "../src/search.js";
 import { contentKey, Store } from "../src/store.js";
@@ -276,6 +277,7 @@ try {
   else if (mode === "run") await runConfigs(baseline, false, "baseline");
   else if (mode === "experiments") await runConfigs(experiments, true, "experiments");
   else if (mode === "hybrid") await runConfigs([hybrid("hybrid")], true, "hybrid");
+  else if (mode === "reranked") await runConfigs([hybrid("hybrid"), hybrid("hybrid + rerank (MiniLM)", { reranker: new OnnxReranker() })], true, "reranked");
   else if (mode === "dump-rerank") await dumpRerank();
   else if (mode === "rerank") await scoreRerank(process.argv.slice(3));
   else console.log("usage: eval-retrieval sample | run | experiments | hybrid");

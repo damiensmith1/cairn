@@ -406,7 +406,15 @@ Each links to the full write-up in [[experiments]].
       part of "Node everywhere" (see Decisions), provided its Node latency
       is ≲ 0.3 s. **Measured: passes** at int8, 512 tokens, 4 threads:
       0.32 s p50, 0.44 s p95, test MRR 0.79 (tune 0.78), the same as full
-      precision; 256 tokens gives 0.17 s for −0.02 MRR ([[experiments]]). Node
+      precision; 256 tokens gives 0.17 s for −0.02 MRR ([[experiments]]).
+      **Wired in (2026-10-18):** `search()` reranks the top 10 when given a
+      reranker; the CLI has `--rerank`. End to end: test MRR 0.71 → 0.79;
+      a reranked search takes ~0.4 s inside a process, ~0.6 s from the
+      built CLI. **On by default (author, 2026-10-18);** `--no-rerank`
+      skips it, and if the reranker can't load (e.g. offline before its
+      first download) search answers without it. Still open: the worker
+      thread, which matters once cairnd exists; the CLI runs it in
+      process. Node
       only, no Python; ~23 MB int8 and ~100–200 MB in memory, against ~1 GB
       for bge-reranker-base; it gives up ~0.02 test MRR (0.79 vs. 0.81;
       0.04 on tune, ~3 of 60 more answered first for bge). bge-reranker-base

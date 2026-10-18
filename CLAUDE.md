@@ -9,8 +9,8 @@ runs the core; the CLI, a terminal dashboard and an MCP server are thin
 clients. Sources are plug-ins per coding agent (Claude Code first).
 
 Status: build steps 1–2 work on real data: ingest, local embeddings,
-hybrid search, pointers (`refs`, `related`) and label probes with
-boosting (boost not yet tuned). No daemon, query understanding or MCP
+hybrid search, a MiniLM reranker (on by default), pointers
+(`refs`, `related`) and label probes with boosting (boost not yet tuned). No daemon, query understanding or MCP
 yet. See the build order in
 docs/design.md.
 
@@ -18,9 +18,9 @@ docs/design.md.
 - `npm test`: unit tests on synthetic transcripts (never real sessions)
 - `npm run typecheck`
 - `npm run cairn -- index [--no-embed] [--limit N]`: read new logs, embed what's new
-- `npm run cairn -- search|decisions|unresolved "<query>" [--project P] [--since DATE] [--topic T]`
+- `npm run cairn -- search|decisions|unresolved "<query>" [--project P] [--since DATE] [--topic T] [--no-rerank]` (reranking is on by default)
 - `npm run cairn -- refs <file|sha|#pr|url>` and `npm run cairn -- related <session>`
-- `npm run eval:retrieval -- sample|run`: the retrieval eval (data in
+- `npm run eval:retrieval -- sample|run|reranked`: the retrieval eval (data in
   `~/.cairn/evals/retrieval/`); re-run it after any change to chunking,
   ranking, labels or embeddings, and record results in docs/experiments.md
 - `npm run train-labels`: trains the label probes into `~/.cairn/models/labels.json`
