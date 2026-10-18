@@ -1,4 +1,4 @@
-import type { IndexResult } from "./api.js";
+import type { Asker, IndexResult } from "./api.js";
 import type { Core } from "./core.js";
 import { EventBus } from "./events.js";
 import type { CairnEvent } from "./events.js";
@@ -70,7 +70,7 @@ export async function startDaemon(core: Core, options: DaemonOptions): Promise<D
     search: (p) => core.search(p),
     refs: (p: { target: string }) => core.refs(p.target),
     related: (p: { session: string }) => core.related(p.session),
-    open: (p: { id: number; around?: number }) => core.open(p.id, p.around),
+    open: (p: { id: number; around?: number } & Asker) => core.open(p.id, p.around, { ...(p.client ? { client: p.client } : {}), ...(p.askingSession ? { askingSession: p.askingSession } : {}) }),
     brief: (p: { session: string }) => core.brief(p.session),
     subscribe: async (_params, connection) => {
       const { history, unsubscribe } = events.subscribe((e: CairnEvent) => connection.notify("event", e));

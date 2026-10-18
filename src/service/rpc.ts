@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, unlinkSync } from "node:fs";
 import { createConnection, createServer } from "node:net";
 import type { Socket } from "node:net";
-import type { Api, BriefResponse, OpenResponse, RefRow, RelatedRow, SearchRequest, SearchResponse, StatusResponse } from "./api.js";
+import type { Api, Asker, BriefResponse, OpenResponse, RefRow, RelatedRow, SearchRequest, SearchResponse, StatusResponse } from "./api.js";
 import type { CairnEvent } from "./events.js";
 
 /**
@@ -177,7 +177,7 @@ export class RemoteApi implements Api {
   search = (req: SearchRequest) => this.client.call<SearchResponse>("search", req);
   refs = (target: string) => this.client.call<RefRow[]>("refs", { target });
   related = (session: string) => this.client.call<RelatedRow[]>("related", { session });
-  open = (id: number, around?: number) => this.client.call<OpenResponse | null>("open", { id, around });
+  open = (id: number, around?: number, from: Asker = {}) => this.client.call<OpenResponse | null>("open", { id, around, ...from });
   brief = (session: string) => this.client.call<BriefResponse | null>("brief", { session });
   status = () => this.client.call<StatusResponse>("status");
   /** Asks cairnd to index now. Returns at once; `busy` means a run was already going. */

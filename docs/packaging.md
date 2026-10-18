@@ -213,6 +213,7 @@ cairn brief <session|#id>     extractive session brief (id, unique prefix, or an
 cairn ask <question>          free text; answers with citations (Claude Haiku 5.5)
 cairn sources                 list / enable / disable sources
 cairn status                  index, backlog, model health
+cairn history                 past searches (CLI, agents, ask) and which results were opened
 cairn live                    cairnd's status and activity, as it happens
 cairn rebuild [index]         rebuild indexes or labels from the store
 cairn service start|stop|status
@@ -251,6 +252,33 @@ or an in-process core when cairnd isn't running.
   what that session's agent still has in context (since its last
   compaction) and labels its older exchanges "this session, from before
   it was compacted". See [[design]] open questions.
+
+## Usage log (built 2026-10-18)
+
+`~/.cairn/logs/usage.jsonl` records what cairn was asked and which
+results were opened afterwards, written through
+[plainlog](https://www.npmjs.com/package/plainlog) (the author's logger)
+from the core, so cairnd and the in-process fallback both write it.
+
+- **Search:** the query (masked for secrets by plainlog's sanitizer hook,
+  using cairn's `maskSecrets`), who asked (`cli`, `mcp` or `ask`), the
+  Claude Code session and its name when an agent asked, the result ids in
+  order, and the time taken. **Open:** the id, who, the session.
+- **Why:** `cairn history` shows the user their past queries; and a
+  search followed by opening one of its results is a free signal of which
+  result helped, the start of an eval built from real questions instead
+  of LLM-written ones.
+- **`cairn history [--limit N] [--session S]`** reads the file directly
+  (works with cairnd stopped) and links each open to the asker's latest
+  search that returned it.
+- **Owner-only:** cairn creates the file 0600 and the folder 0700 before
+  plainlog writes (plainlog creates files with default permissions and
+  doesn't create folders). A failed write loses a line, never a search.
+- **No rotation yet** (open question); lines are ~300 bytes.
+- **plainlog note:** each write leaves its 1 s timeout timer running,
+  which holds a short-lived process open ~1 s after its last log line.
+  Only the CLI's in-process fallback (cairnd stopped) notices. A fix
+  belongs in plainlog (clear the timer after the write).
 
 ## Live view (built 2026-10-18)
 

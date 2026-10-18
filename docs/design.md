@@ -337,6 +337,7 @@ Each links to the full write-up in [[experiments]].
 | **Laya shelved (2026-10-18)**, for performance and RAM/disk cost | The retrieval eval already gives search each question's true intent (a perfect classifier) and it doesn't help: R@5 decision 0.86 → 0.81, open and recall unchanged; refs needs no model (rules 1.00). Laya would add ~450 MB disk and ~0.6 GB RAM (int8), ~0.3 s per query against a 1 s budget, a one-time ~4–5 GB RAM export, an unpublished library to vendor and a model to host. Revisit only if better labels make boosting by true intent move the eval, and a probe on the query embedding falls short ([[experiments]]) |
 | Pointers as a deterministic enricher and link graph | Exact lookups and related sessions for free; GraphRAG-style expansion to test |
 | Intent decides which index leads (`refs` → the pointer graph); no label boost | One query layer serves all five question types |
+| A usage log through plainlog, queries masked (2026-10-18, author) | Shows the user their past queries (`cairn history`); search → open pairs are implicit relevance labels from real questions; plainlog gets real use. Queries can contain pasted keys, so they're masked before writing |
 | MCP has no `ask` tool (2026-10-18) | The calling agent reasons over passages itself; `ask` would add a second LLM call and API cost |
 | MCP output frames passages as data and masks secrets (2026-10-18) | Old conversations can contain instructions and pasted keys; both stay inert or on the machine |
 | **Label boost dropped from ranking (2026-10-18, author)** | No gain in any test (eval v1, the tuning grid, the ceiling with perfect labels); strong boosting hurts. Labels stay stored for `brief`'s key exchanges and the topic filter. `cairn decisions` and `cairn unresolved` were removed: the boost was all they added |
@@ -423,6 +424,12 @@ Each links to the full write-up in [[experiments]].
       node` would break it until `cairn service start` ran again. Fixed
       2026-10-18: the service and the MCP registration use Node's PATH
       location (`/opt/homebrew/bin/node`) when it's the same binary.
+- [ ] **Usage log rotation.** `usage.jsonl` grows without bound (~300
+      bytes per search). Rotate by size or month once it matters.
+- [ ] **An eval from real usage.** Once the usage log has a few weeks of
+      searches: questions whose results were opened give (query, helpful
+      exchange) pairs, a check on the LLM-written eval, and training data
+      if the reranker fine-tune is revived.
 - [ ] **Fine-tune the reranker on this kind of data** (deferred
       2026-10-18, author: MCP first). The remaining headroom is 23 of 146
       questions where MiniLM reads the answer and still ranks something

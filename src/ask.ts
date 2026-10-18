@@ -54,7 +54,7 @@ export interface AskResult {
  * Runs in the caller's process with the caller's Anthropic credentials, so keys never reach cairnd.
  */
 export async function ask(api: Api, question: string, onText: (text: string) => void, client = anthropicClient()): Promise<AskResult> {
-  const res = await api.search({ query: question, limit: ASK_PASSAGES });
+  const res = await api.search({ query: question, limit: ASK_PASSAGES, client: "ask" });
   const passages = res.groups.flatMap((g) => g.hits.map((h) => toPassage(h.exchange, g.sessionName)));
   if (passages.length === 0) return { passages, stopReason: null };
   const stream = client.messages.stream({

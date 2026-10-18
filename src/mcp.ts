@@ -71,6 +71,7 @@ export function createMcpServer(connect: () => Promise<Api>, version = "0.0.0", 
           ...(project ? { project } : {}),
           ...(since ? { since } : {}),
           ...(options.session ? { askingSession: options.session } : {}),
+          client: "mcp",
         });
         if (res.groups.length === 0) return text("No matches in past sessions.");
         const lines = [DATA_NOTE];
@@ -105,7 +106,7 @@ export function createMcpServer(connect: () => Promise<Api>, version = "0.0.0", 
       withApi(async (api) => {
         const seq = exchangeId(id);
         if (!Number.isInteger(seq) || seq <= 0) return error(`Not an exchange id: ${id}`);
-        const res = await api.open(seq, around ?? 1);
+        const res = await api.open(seq, around ?? 1, { client: "mcp", ...(options.session ? { askingSession: options.session } : {}) });
         if (!res) return error(`No exchange #${seq}.`);
         const max = full ? Infinity : 4000;
         const lines = [DATA_NOTE, "", `## ${res.project} · ${session(res.sessionName, res.session)} · session ${res.session}`];

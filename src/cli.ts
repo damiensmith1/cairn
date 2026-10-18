@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { ask, explainAskError } from "./ask.js";
 import { keyStore } from "./credentials.js";
+import { history, readUsage, usagePath } from "./usage.js";
 import { runLive } from "./live.js";
 import { labelModelPath, logDir, socketPath } from "./paths.js";
 import type { SessionGroup } from "./search.js";
@@ -23,6 +24,7 @@ const USAGE = `cairn: searchable memory for agent sessions
   cairn refs <file|sha|#pr|url>          every exchange that edited or mentioned it, oldest first
   cairn related <session>                sessions sharing the most files, commits and links
   cairn status                           what's stored and indexed, and whether cairnd is running
+  cairn history [--limit N] [--session S] past searches (CLI, agents, ask) and which results were opened
   cairn index [--no-embed] [--limit N]   catch up now (asks cairnd if it's running)
      --retry-failed                      also retry exchanges set aside after failing to embed
 
@@ -136,6 +138,7 @@ async function searchCommand(args: string[]) {
       ...(values.limit ? { limit: Number(values.limit) } : {}),
       // Run by an agent from inside a Claude Code session: leave out what it already has in context.
       ...(process.env.CLAUDE_CODE_SESSION_ID ? { askingSession: process.env.CLAUDE_CODE_SESSION_ID } : {}),
+      client: "cli",
       rerank: !values["no-rerank"],
     });
     if (values.topic && !res.labels) console.log(dim(`no label model at ${labelModelPath()}: topic filter off`));
@@ -161,7 +164,10 @@ async function open(args: string[]) {
   if (!Number.isInteger(id)) return fail(USAGE);
   const a = await api();
   try {
-    const res = await a.open(id, values.around ? Number(values.around) : 2);
+    const res = await a.open(id, values.around ? Number(values.around) : 2, {
+      client: "cli",
+      ...(process.env.CLAUDE_CODE_SESSION_ID ? { askingSession: process.env.CLAUDE_CODE_SESSION_ID } : {}),
+    });
     if (!res) return fail(`No exchange #${id}.`);
     console.log(`${bold(cyan(res.project))} · ${bold(res.sessionName ?? res.session.slice(0, 8))} ${dim(`· ${res.session}`)}`);
     const max = values.full ? Infinity : 1500;
@@ -325,6 +331,18 @@ async function service(args: string[]) {
   fail(USAGE);
 }
 
+/** `cairn history`: reads the usage log directly, so it works with cairnd stopped. */
+async function historyCommand(args: string[]) {
+  const { values } = parseArgs({ args, options: { limit: { type: "string" }, session: { type: "string" } } });
+  const rows = history(readUsage()).filter((r) => !values.session || r.session?.startsWith(values.session));
+  if (rows.length === 0) return console.log(values.session ? "No searches from that session." : `No searches yet. ${dim(`(${usagePath()})`)}`);
+  for (const r of rows.slice(-Number(values.limit ?? 20))) {
+    const who = r.client === "mcp" || r.session ? `${r.client} · ${r.sessionName ?? r.session?.slice(0, 8) ?? ""}` : r.client;
+    const opened = r.opened.length ? ` · opened ${r.opened.map((id) => `#${id}`).join(", ")}` : "";
+    console.log(`${dim(when(r.at))}  ${cyan(oneLine(who, 28).padEnd(28))}  ${bold(`"${oneLine(r.query, 70)}"`)}  ${dim(`${r.hits.length} hits${opened}`)}`);
+  }
+}
+
 async function mcp() {
   // Loaded only here, like init: the MCP SDK isn't needed by any other command.
   const { serveMcp } = await import("./mcp.js");
@@ -368,6 +386,7 @@ const commands: Record<string, (args: string[]) => Promise<void>> = {
   init,
   key,
   mcp,
+  history: historyCommand,
   index,
   search: searchCommand,
   open,

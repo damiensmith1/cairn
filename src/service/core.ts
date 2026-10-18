@@ -16,20 +16,9 @@ import { ClaudeCodeSource } from "../sources/claude-code.js";
 import type { Source } from "../sources/source.js";
 import { Store } from "../store.js";
 import { normalizePath } from "../pointers.js";
-import type {
-  Api,
-  BriefResponse,
-  DaemonInfo,
-  IndexResult,
-  KeyExchange,
-  OpenResponse,
-  RefRow,
-  RelatedRow,
-  SearchRequest,
-  SearchResponse,
-  StatusResponse,
-} from "./api.js";
+import type { Api, Asker, BriefResponse, DaemonInfo, IndexResult, KeyExchange, OpenResponse, RefRow, RelatedRow, SearchRequest, SearchResponse, StatusResponse } from "./api.js";
 import type { EventBus } from "./events.js";
+import { UsageLog } from "../usage.js";
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e)).split("\n")[0]!;
 
@@ -44,6 +33,8 @@ export class Core implements Api {
   rerankerIdleMs?: number;
   /** Where cairnd publishes what it's doing; one-shot CLIs leave it unset. */
   events?: EventBus;
+  /** Where searches and opens are recorded (`cairn history`); unset in tests unless given. */
+  usage?: UsageLog;
   private idleTimer: NodeJS.Timeout | undefined;
 
   constructor(
@@ -61,7 +52,7 @@ export class Core implements Api {
     const claude = loadConfig()?.sources?.["claude-code"];
     // Without a config (before `cairn init`), watch Claude Code where it writes.
     const sources = claude ? (claude.enabled ? claude.paths.map((p) => new ClaudeCodeSource(expandHome(p))) : []) : [new ClaudeCodeSource(claudeProjectsDir())];
-    return new Core(
+    const core = new Core(
       new Store(dbPath(), embedder.dims),
       embedder,
       sources,
@@ -69,6 +60,8 @@ export class Core implements Api {
       new OnnxReranker(),
       dbPath(),
     );
+    core.usage = new UsageLog();
+    return core;
   }
 
   /** Puts exchanges set aside after failing to embed back in the queue; returns how many. */
@@ -122,8 +115,10 @@ export class Core implements Api {
       });
     const started = Date.now();
     const done = (res: SearchResponse) => {
-      const hits = res.groups.reduce((n, g) => n + g.hits.length, 0);
-      this.events?.emit({ type: "search", query: req.query, hits, reranked: res.reranked, ms: Date.now() - started });
+      const hits = res.groups.flatMap((g) => g.hits.map((h) => h.exchange.seq));
+      const ms = Date.now() - started;
+      this.events?.emit({ type: "search", query: req.query, hits: hits.length, reranked: res.reranked, ms });
+      this.usage?.search({ query: req.query, client: req.client ?? "unknown", ...this.asker(req.askingSession), hits, ms });
       return res;
     };
     if (req.rerank === false || !this.reranker) return done({ groups: await run(options), reranked: false, labels });
@@ -152,10 +147,18 @@ export class Core implements Api {
     return rows.map((r) => ({ ...r, sessionName: names.get(r.session) ?? null }));
   }
 
-  async open(id: number, around = 2): Promise<OpenResponse | null> {
+  /** The asking session and its name, for the usage log. */
+  private asker(session: string | undefined): { session?: string; sessionName?: string } {
+    if (!session) return {};
+    const name = this.store.sessionNames([session]).get(session);
+    return name ? { session, sessionName: name } : { session };
+  }
+
+  async open(id: number, around = 2, from: Asker = {}): Promise<OpenResponse | null> {
     const exchanges = this.store.around(id, around, around);
     const target = exchanges.find((x) => x.seq === id);
     if (!target) return null;
+    this.usage?.open({ id, client: from.client ?? "unknown", ...this.asker(from.askingSession) });
     const name = this.store.sessionNames([target.session]).get(target.session) ?? null;
     return { target: id, session: target.session, sessionName: name, project: target.project, exchanges };
   }

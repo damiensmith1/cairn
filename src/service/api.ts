@@ -2,6 +2,7 @@ import type { EmbedProgress } from "../ingest.js";
 import type { SessionGroup } from "../search.js";
 import type { StoreStats } from "../store.js";
 import type { StoredExchange } from "../types.js";
+import type { Client } from "../usage.js";
 
 /**
  * What clients can ask: answered by cairnd over its socket, or by a Core in the client's own
@@ -12,11 +13,18 @@ export interface Api {
   refs(target: string): Promise<RefRow[]>;
   related(session: string): Promise<RelatedRow[]>;
   /** An exchange by id, with its neighbours in the session. */
-  open(id: number, around?: number): Promise<OpenResponse | null>;
+  open(id: number, around?: number, from?: Asker): Promise<OpenResponse | null>;
   /** What a session was: when, where, what it changed, its key exchanges, related sessions. */
   brief(session: string): Promise<BriefResponse | null>;
   status(): Promise<StatusResponse>;
   close(): void;
+}
+
+/** Who's asking, for the usage log (and, for an agent's session, what to leave out). */
+export interface Asker {
+  client?: Client;
+  /** The Claude Code session asking; see SearchOptions.askingSession. */
+  askingSession?: string;
 }
 
 export interface SearchRequest {
@@ -29,6 +37,7 @@ export interface SearchRequest {
   rerank?: boolean;
   /** The session asking, if an agent searches from inside one; see SearchOptions.askingSession. */
   askingSession?: string;
+  client?: Client;
 }
 
 export interface SearchResponse {
