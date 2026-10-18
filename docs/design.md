@@ -392,6 +392,15 @@ Each links to the full write-up in [[experiments]].
       Worth building only once intent moves the eval (above). **Moot for
       ranking (2026-10-18):** the ceiling test shows intent can't help
       through labels; `refs` routing stays with rules.
+- [ ] **Fine-tune the reranker on this kind of data** (deferred
+      2026-10-18, author: MCP first). The remaining headroom is 23 of 146
+      questions where MiniLM reads the answer and still ranks something
+      else first; free fixes (input windows, a header, blending with the
+      search score) didn't help ([[experiments]]). Plan if revived:
+      ~2,000 LLM-written questions from sessions outside the eval,
+      fine-tune MiniLM locally (~1–2 GB RAM, 20–30 min), ship only if
+      tune improves, test confirms, and first-place gains outnumber
+      losses 2:1. Same speed and size as today.
 - [x] **Remove the label boost from ranking?** It hasn't helped in any
       test (eval v1, the tuning grid, the ceiling with perfect labels),
       and strong boosting hurts. **Done 2026-10-18 (author):** removed

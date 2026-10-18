@@ -10,6 +10,66 @@ Spikes run to settle [[design]] questions with data. Newest first. Raw
 data (conversation excerpts, labels, scores) stays outside the repo in
 `~/.cairn/spikes/`, since it's the author's own conversations.
 
+## 2026-10-18 · Reranker misses, and free fixes that don't help
+
+**Question:** with the reranker on, the right exchange is in the top 10
+for 98% of questions but first for only ~68%. Why does it miss first
+place, and do changes that cost no speed or memory fix it?
+
+**Error analysis.** Production search (hybrid, MiniLM over the top 10,
+first 1500 characters of each exchange) misses first place on 47 of 146
+questions. Two LLM reviewers (half each) put every miss in one category,
+given the question, the target (marked where the reranker stops reading)
+and the exchanges ranked above it:
+
+| Why it missed | Questions |
+|---|---|
+| **Misranked**: the target answers within what the reranker reads; what's above doesn't | **23** |
+| Another exchange above answers as well (eval noise) | 9 |
+| The answer comes after what the reranker reads | 8 |
+| A near-duplicate of the target ranked above (eval noise) | 3 |
+| Not in the top 10 (retrieval) | 3 |
+| The question fits its target poorly | 1 |
+
+So ~12 misses are eval noise: counting them, R@1 is effectively ~0.76,
+not 0.68. The largest group, about half the misses (23 questions, 16%
+of all), is the model misjudging text it does read.
+
+**Free fixes tried** (same 10 candidates, tune/test halves; "better" and
+"worse" count questions gaining or losing first place against
+production):
+
+| Reranker input | p50 | tune R@1 | tune MRR | test R@1 | test MRR | better | worse |
+|---|---|---|---|---|---|---|---|
+| Production: first 1500 chars | 0.23 s | 0.66 | 0.76 | 0.70 | 0.78 | — | — |
+| + header line (project · session · date) | 0.27 s | 0.63 | 0.74 | 0.70 | 0.77 | 5 | 8 |
+| The stored chunk closest to the query | 0.32 s | 0.57 | 0.69 | 0.57 | 0.68 | 12 | 28 |
+| The 1500-char window with most query words | 0.23 s | 0.64 | 0.74 | 0.77 | 0.82 | 5 | 3 |
+| Same, with the header line | 0.27 s | 0.65 | 0.75 | 0.73 | 0.79 | 8 | 7 |
+| Best of up to 4 windows (more reranker calls) | 0.67 s | 0.64 | 0.75 | 0.68 | 0.76 | 6 | 9 |
+
+Blending the reranker's score with the search score (z-scores, weight
+0.25–1) moved every input by a few questions either way (e.g. production
++ 0.25: 6 better, 6 worse).
+
+**Findings**
+- **No free fix clearly helps.** The keyword-window input is up on test
+  (MRR 0.82) but down on tune (0.74) with 5 better and 3 worse: noise
+  by the method's own rule (choose on tune, confirm on test).
+- **Windowing fixes some late answers but breaks others**: the keyword
+  window put 3 of the 8 "answer comes later" targets first, and lost 7
+  questions production had right.
+- **The chunk as embedded is a poor reranker input**: its header and
+  previous-reply tail use the reranker's 512 tokens on context the
+  question isn't about.
+- **The remaining headroom is the model itself**: 23 questions where it
+  reads the answer and still ranks something else first. Only a better
+  ranking model can fix those: fine-tuning MiniLM on this kind of data
+  (proposed, not started), or a bigger one (tested: +0.02 MRR at 3–6×
+  the latency).
+
+Data: `~/.cairn/spikes/rerank2/` (`rerank2.mts dump|rerank|score|misses`).
+
 ## 2026-10-18 · Label boost ceiling: perfect labels don't help ranking
 
 **Question:** Before improving the label probes (or adding an intent
