@@ -155,6 +155,15 @@ export class Store {
         attempts INTEGER NOT NULL, at TEXT NOT NULL,
         PRIMARY KEY (exchange_seq, model)
       );
+      -- Sessions holding a copy of an exchange stored under another session (forks, resumes).
+      CREATE TABLE IF NOT EXISTS copies (
+        content_key TEXT NOT NULL, session TEXT NOT NULL, at TEXT NOT NULL,
+        PRIMARY KEY (content_key, session)
+      );
+      CREATE TABLE IF NOT EXISTS compactions (
+        session TEXT NOT NULL, at TEXT NOT NULL,
+        PRIMARY KEY (session, at)
+      );
       CREATE TABLE IF NOT EXISTS labels (
         exchange_seq INTEGER NOT NULL, version TEXT NOT NULL,
         p_decision REAL NOT NULL, p_unresolved REAL NOT NULL, topic TEXT NOT NULL, topic_probs TEXT NOT NULL,
@@ -247,7 +256,10 @@ export class Store {
     this.db.transaction(() => {
       for (const x of exchanges) {
         const key = contentKey(x);
-        if (copy.get(key)) continue;
+        if (copy.get(key)) {
+          this.noteCopies([x]);
+          continue;
+        }
         const info = insert.run({ ...x, files: JSON.stringify(x.files), commits: JSON.stringify(x.commits), contentKey: key });
         if (info.changes === 0) continue;
         fts.run({ seq: info.lastInsertRowid, ...ftsColumns(x) });
@@ -499,6 +511,41 @@ export class Store {
     if (q.length < 4) return undefined;
     const rows = this.db.prepare("SELECT DISTINCT session FROM exchanges WHERE session LIKE ? || '%' LIMIT 2").all(q) as { session: string }[];
     return rows.length === 1 ? rows[0]!.session : undefined;
+  }
+
+  /** Records which sessions hold copies of exchanges already stored under another session. */
+  noteCopies(exchanges: Exchange[]) {
+    const other = this.db.prepare("SELECT 1 FROM exchanges WHERE content_key = ? AND session != ? LIMIT 1");
+    const insert = this.db.prepare("INSERT OR IGNORE INTO copies (content_key, session, at) VALUES (?, ?, ?)");
+    this.db.transaction(() => {
+      for (const x of exchanges) {
+        const key = contentKey(x);
+        if (other.get(key, x.session)) insert.run(key, x.session, x.at);
+      }
+    })();
+  }
+
+  /** Records when sessions were compacted. Seeing one again (a re-read) changes nothing. */
+  addCompactions(items: { session: string; at: string }[]) {
+    if (items.length === 0) return;
+    const insert = this.db.prepare("INSERT OR IGNORE INTO compactions (session, at) VALUES (?, ?)");
+    this.db.transaction(() => items.forEach((c) => insert.run(c.session, c.at)))();
+  }
+
+  /**
+   * Content keys of `session`'s exchanges still in its agent's context: those since its last
+   * compaction, or all of them if it was never compacted. Includes copies it holds of exchanges
+   * stored under another session (a fork's or resume's history).
+   */
+  inContext(session: string): Set<string> {
+    const last = (this.db.prepare("SELECT MAX(at) at FROM compactions WHERE session = ?").get(session) as { at: string | null }).at;
+    const rows = this.db
+      .prepare(
+        `SELECT content_key FROM exchanges WHERE session = @session AND (@last IS NULL OR at >= @last)
+         UNION SELECT content_key FROM copies WHERE session = @session AND (@last IS NULL OR at >= @last)`,
+      )
+      .all({ session, last }) as { content_key: string }[];
+    return new Set(rows.map((r) => r.content_key));
   }
 
   /** The latest name each session was given. */

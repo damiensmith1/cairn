@@ -75,6 +75,15 @@ Pointer { exchange_hash, kind, target, relation }
 
 Together they form a graph: exchanges are linked through shared targets.
 
+**Session facts** (added 2026-10-18), read from the logs alongside
+exchanges, so search can tell what an agent still has in context:
+
+```
+Compaction { session, at }              the agent's context was replaced by a summary at `at`
+Copy       { content_key, session, at } `session` holds a copy of an exchange stored under
+                                        another session (a fork's or resume's history)
+```
+
 Enrichments are keyed by `exchange_hash + enricher + version`: each
 exchange is enriched once per version, and a new version re-enriches
 exactly what's affected. This also absorbs label models' run-to-run noise
@@ -396,12 +405,19 @@ Each links to the full write-up in [[experiments]].
       Worth building only once intent moves the eval (above). **Moot for
       ranking (2026-10-18):** the ceiling test shows intent can't help
       through labels; `refs` routing stays with rules.
-- [ ] **A session finds itself.** Searching through MCP from inside a
-      session returns that session's own earlier exchanges (seen on the
-      first real run: a question about cairn's storage ranked this
-      session's own summary first). The server can't reliably tell which
-      session called it. Options: a `session` parameter the agent can
-      pass to exclude, or down-weighting the most recent minutes.
+- [x] **A session finds itself.** Searching through MCP from inside a
+      session returned that session's own exchanges, including ones the
+      agent still had in context. **Done 2026-10-18 (author chose option
+      2 of 3):** Claude Code gives each MCP server its session's id
+      (`CLAUDE_CODE_SESSION_ID`, also set in its Bash tool, so `cairn
+      search` run by an agent does the same). Search leaves out that
+      session's exchanges since its last compaction (`compact_boundary`
+      in the log; all of them if never compacted) and copies of them in
+      other sessions. Exchanges from before the compaction stay
+      searchable, labelled "this session, from before it was compacted":
+      the agent has lost them. Rejected: excluding the whole session
+      (loses that), only pushing it down (still echoes). Unchecked: whether
+      `/clear` leaves the server with a stale id (the cost would be echo).
 - [x] **cairnd's LaunchAgent ran Node by its versioned Homebrew path**
       (`/opt/homebrew/Cellar/node/23.9.0/bin/node`), so a `brew upgrade
       node` would break it until `cairn service start` ran again. Fixed

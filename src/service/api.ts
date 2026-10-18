@@ -27,6 +27,8 @@ export interface SearchRequest {
   limit?: number;
   /** Rerank the top candidates (default true). */
   rerank?: boolean;
+  /** The session asking, if an agent searches from inside one; see SearchOptions.askingSession. */
+  askingSession?: string;
 }
 
 export interface SearchResponse {

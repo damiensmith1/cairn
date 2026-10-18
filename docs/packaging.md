@@ -246,6 +246,11 @@ or an in-process core when cairnd isn't running.
   loads the reranker.
 - **Stdout** belongs to the protocol, so the server sends any other
   logging to stderr.
+- **A session doesn't find itself:** Claude Code starts one server per
+  session and passes its id (`CLAUDE_CODE_SESSION_ID`); search leaves out
+  what that session's agent still has in context (since its last
+  compaction) and labels its older exchanges "this session, from before
+  it was compacted". See [[design]] open questions.
 
 ## Live view (built 2026-10-18)
 

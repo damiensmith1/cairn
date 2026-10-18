@@ -36,8 +36,10 @@ async function reparseIfNeeded(store: Store, sources: Source[]): Promise<number>
       for (const location of await source.locations()) {
         await new Promise((resolve) => setImmediate(resolve));
         try {
-          const { exchanges } = await source.read(location, initialState(), true);
+          const { exchanges, compactions } = await source.read(location, initialState(), true);
           changed += store.updateParsed(exchanges);
+          store.addCompactions(compactions);
+          store.noteCopies(exchanges);
         } catch {
           // unreadable log: left as it was
         }
@@ -73,8 +75,9 @@ export async function ingest(store: Store, sources: Source[], now = Date.now()):
       const unchanged = info.size === cursor.size && info.mtimeMs === cursor.mtimeMs;
       // Nothing new, unless an exchange was left open and the session has since gone idle.
       if (unchanged && (cursor.state.offset >= info.size || !idle)) continue;
-      const { exchanges, state } = await source.read(location, cursor.state, idle);
+      const { exchanges, compactions, state } = await source.read(location, cursor.state, idle);
       result.appended += store.append(exchanges);
+      store.addCompactions(compactions);
       result.changed++;
       store.setCursor(location, { state, size: info.size, mtimeMs: info.mtimeMs });
     }

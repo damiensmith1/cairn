@@ -14,6 +14,11 @@ export const initialState = (): ReadState => ({ offset: 0, prevTail: "", session
 export interface ReadResult {
   /** Exchanges completed since the given state. */
   exchanges: Exchange[];
+  /**
+   * When the agent compacted a session's context (earlier turns replaced by a summary). Exchanges
+   * after a session's last compaction are still in its agent's context; earlier ones aren't.
+   */
+  compactions: { session: string; at: string }[];
   state: ReadState;
 }
 

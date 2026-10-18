@@ -134,6 +134,8 @@ async function searchCommand(args: string[]) {
       ...(values.since ? { since: values.since } : {}),
       ...(values.topic ? { topic: values.topic } : {}),
       ...(values.limit ? { limit: Number(values.limit) } : {}),
+      // Run by an agent from inside a Claude Code session: leave out what it already has in context.
+      ...(process.env.CLAUDE_CODE_SESSION_ID ? { askingSession: process.env.CLAUDE_CODE_SESSION_ID } : {}),
       rerank: !values["no-rerank"],
     });
     if (values.topic && !res.labels) console.log(dim(`no label model at ${labelModelPath()}: topic filter off`));

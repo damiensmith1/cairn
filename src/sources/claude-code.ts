@@ -94,8 +94,10 @@ export class ClaudeCodeSource implements Source {
   /**
    * v2: commits only from a real `git commit` invocation (v1 also took heredocs and mentions).
    * v3: and only a message not separated from it by `&&`, `;`, `|` or a newline.
+   * v4: also reports compactions, so logs read before it are read again once for them (and for
+   * which sessions hold copies of forked exchanges).
    */
-  readonly parserVersion = "3";
+  readonly parserVersion = "4";
 
   constructor(private readonly root: string) {}
 
@@ -129,7 +131,7 @@ export class ClaudeCodeSource implements Source {
     let buffer: Buffer;
     try {
       const { size } = await handle.stat();
-      if (size <= state.offset) return { exchanges: [], state };
+      if (size <= state.offset) return { exchanges: [], compactions: [], state };
       buffer = Buffer.alloc(size - state.offset);
       await handle.read(buffer, 0, buffer.length, state.offset);
     } finally {
@@ -140,6 +142,7 @@ export class ClaudeCodeSource implements Source {
     const end = buffer.lastIndexOf(0x0a) + 1;
     const session = basename(location, ".jsonl");
     const exchanges: Exchange[] = [];
+    const compactions: ReadResult["compactions"] = [];
     let { prevTail, sessionName } = state;
     let current: Building | undefined;
 
@@ -174,6 +177,10 @@ export class ClaudeCodeSource implements Source {
       try {
         e = JSON.parse(line);
       } catch {
+        continue;
+      }
+      if (e.type === "system" && e.subtype === "compact_boundary" && typeof e.timestamp === "string") {
+        compactions.push({ session, at: e.timestamp });
         continue;
       }
       if (e.type === "agent-name" && typeof e.agentName === "string" && e.agentName !== "New conversation") {
@@ -218,6 +225,6 @@ export class ClaudeCodeSource implements Source {
       if (final) emit(current);
       else offset = current.offset;
     }
-    return { exchanges, state: { offset, prevTail, sessionName } };
+    return { exchanges, compactions, state: { offset, prevTail, sessionName } };
   }
 }

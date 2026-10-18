@@ -49,10 +49,10 @@ function fakeApi() {
   return { connect, calls };
 }
 
-async function connected() {
+async function connected(options: { session?: string } = {}) {
   const fake = fakeApi();
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
-  await createMcpServer(fake.connect).connect(serverSide);
+  await createMcpServer(fake.connect, "0", options).connect(serverSide);
   const client = new Client({ name: "test", version: "0" });
   await client.connect(clientSide);
   const call = async (name: string, args: Record<string, unknown>) => {
@@ -83,6 +83,16 @@ describe("cairn mcp", () => {
     expect(r.text).not.toContain("«");
     expect(calls.search[0]).toMatchObject({ query: "storage", project: "cairn", limit: 3 });
     expect(calls.closed).toBe(calls.opened);
+  });
+
+  it("passes its own session along, and marks that session's earlier exchanges", async () => {
+    const own = "11111111-2222-3333-4444-555555555555";
+    const { call, calls } = await connected({ session: own });
+    const r = await call("search", { query: "storage" });
+    expect(calls.search[0]).toMatchObject({ askingSession: own });
+    expect(r.text).toContain("this session, from before it was compacted");
+    const other = await connected({ session: "someone-else" });
+    expect((await other.call("search", { query: "storage" })).text).not.toContain("this session");
   });
 
   it("opens by #id, clips long replies unless full, and reports unknown ids as errors", async () => {

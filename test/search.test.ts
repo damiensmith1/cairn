@@ -94,6 +94,39 @@ describe("ingest + embed + search", () => {
   });
 });
 
+describe("searching from inside a session", () => {
+  // An agent in session "me" searches. Its first exchange was compacted away; the second is still
+  // in its context, and a fork copied that second exchange into another session.
+  async function setup(compacted: boolean) {
+    const early = [user("what threshold should the cassette use?"), assistant([text("Keep the cassette threshold at 0.85.")])];
+    const late = [user("so the cassette threshold stays at 0.85?"), assistant([text("Yes, the cassette threshold stays.")])];
+    const boundary = { type: "system", subtype: "compact_boundary", timestamp: late[0]!.timestamp };
+    const other = [user("cassette threshold for the replay tests?"), assistant([text("Replay tests use the same cassette threshold.")])];
+    const { root, files } = projectsDir({ me: [...early, ...(compacted ? [boundary] : []), ...late], fork: late, other });
+    const old = Date.now() / 1000 - 3600;
+    for (const f of Object.values(files)) utimesSync(f, old, old);
+    const embedder = new FakeEmbedder();
+    const store = new Store(":memory:", embedder.dims);
+    await ingest(store, [new ClaudeCodeSource(root)]);
+    await embedPending(store, embedder);
+    const users = async (askingSession?: string) =>
+      (await search(store, embedder, "cassette threshold", askingSession ? { askingSession } : {})).flatMap((g) => g.hits.map((h) => `${g.session}: ${h.exchange.user}`)).sort();
+    return { users };
+  }
+
+  it("leaves out what the asking session still has in context, and fork copies of it", async () => {
+    const { users } = await setup(true);
+    // Stored once, under whichever session was read first.
+    expect((await users()).filter((u) => u.endsWith("so the cassette threshold stays at 0.85?"))).toHaveLength(1);
+    expect(await users("me")).toEqual(["me: what threshold should the cassette use?", "other: cassette threshold for the replay tests?"]);
+  });
+
+  it("leaves out the whole session if it was never compacted", async () => {
+    const { users } = await setup(false);
+    expect(await users("me")).toEqual(["other: cassette threshold for the replay tests?"]);
+  });
+});
+
 describe("Store file permissions", () => {
   it("keeps the data folder and database owner-only", async () => {
     const { mkdtempSync, statSync } = await import("node:fs");

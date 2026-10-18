@@ -47,6 +47,12 @@ export interface SearchOptions {
   since?: string;
   /** Only exchanges whose labelled topic is this. Needs a label model. */
   topic?: string;
+  /**
+   * The session asking, when an agent searches from inside one: its exchanges still in that
+   * agent's context (since its last compaction), and copies of them in forks, are left out.
+   * Ones from before the compaction stay: the agent has lost them.
+   */
+  askingSession?: string;
   /** The label model whose stored labels the topic filter reads; without one, labels are ignored. */
   labels?: LabelModel;
   /** Candidates taken from each of keyword and vector search before fusion. */
@@ -92,6 +98,7 @@ export async function search(store: Store, embedder: Embedder, query: string, op
   const byKeyword = new Map(keyword.map((m): [number, Match] => [m.seq, m]));
   const byVector = new Map(nearest.map((m): [number, Match] => [m.seq, m]));
   const seen = new Set<string>();
+  const inContext = options.askingSession ? store.inContext(options.askingSession) : undefined;
   const hits: Hit[] = [];
   // The reranker reorders the top candidates, so collect at least that many before cutting to limit.
   const rerankTop = options.reranker ? (options.rerankTop ?? RERANK_TOP) : 0;
@@ -104,7 +111,7 @@ export async function search(store: Store, embedder: Embedder, query: string, op
     if (options.topic && labels.get(seq)?.topic !== options.topic) continue;
     // Forked and resumed sessions copy earlier exchanges: show each once.
     const key = contentKey(x);
-    if (seen.has(key)) continue;
+    if (seen.has(key) || inContext?.has(key)) continue;
     seen.add(key);
     const via: Hit["via"] = [];
     if (byKeyword.has(seq)) via.push("keyword");

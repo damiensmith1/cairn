@@ -92,6 +92,16 @@ describe("ClaudeCodeSource", () => {
     expect(r3.exchanges[0]!.prevTail).toBe("I'd keep 0.85 for now.\nDone.");
   });
 
+  it("reports compactions, and they don't become exchanges", async () => {
+    const after = user("and now?");
+    const { files } = projectsDir({
+      s: [user("first"), assistant([text("one")]), { type: "system", subtype: "compact_boundary", timestamp: after.timestamp }, after, assistant([text("two")])],
+    });
+    const r = await new ClaudeCodeSource("").read(files.s!, initialState(), true);
+    expect(r.compactions).toEqual([{ session: "s", at: after.timestamp }]);
+    expect(r.exchanges.map((x) => x.user)).toEqual(["first", "and now?"]);
+  });
+
   it("ignores a half-written last line", async () => {
     const { root, files } = projectsDir({ s1: session });
     appendFileSync(files.s1!, '{"type":"user","message":{"content":"half');
@@ -123,5 +133,28 @@ describe("re-deriving parsed fields after a parser change", () => {
     expect(x!.user).toBe("commit it");
     expect(store.keyword('"keep"', 5).length).toBe(1); // keyword index follows
     expect((await ingest(store, [source])).reparsed).toBe(0); // once per version
+  });
+
+  it("picks up compactions in logs read before the parser reported them", async () => {
+    const { utimesSync } = await import("node:fs");
+    const { ingest } = await import("../src/ingest.js");
+    const { Store } = await import("../src/store.js");
+    // Timestamps follow creation order, so build the entries in file order.
+    const first = [user("first"), assistant([text("one")])];
+    const later = user("second");
+    const { root, files } = projectsDir({
+      s: [...first, { type: "system", subtype: "compact_boundary", timestamp: later.timestamp }, later, assistant([text("two")])],
+    });
+    const old = Date.now() / 1000 - 3600;
+    utimesSync(files.s!, old, old);
+    const store = new Store(":memory:", 8);
+    await ingest(store, [new ClaudeCodeSource(root)]);
+    expect(store.inContext("s").size).toBe(1);
+    // As if read by parser v3, which didn't report compactions.
+    store.db.prepare("DELETE FROM compactions").run();
+    store.setMeta("parser:claude-code", "3");
+    expect(store.inContext("s").size).toBe(2);
+    await ingest(store, [new ClaudeCodeSource(root)]);
+    expect(store.inContext("s").size).toBe(1);
   });
 });

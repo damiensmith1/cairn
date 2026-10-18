@@ -31,7 +31,11 @@ const exchangeId = (v: string | number) => Number(String(v).replace(/^#/, ""));
 
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
 
-export function createMcpServer(connect: () => Promise<Api>, version = "0.0.0"): McpServer {
+/**
+ * `session`: the Claude Code session this server belongs to (Claude Code starts one server per
+ * session). Search leaves out what that session's agent still has in context.
+ */
+export function createMcpServer(connect: () => Promise<Api>, version = "0.0.0", options: { session?: string } = {}): McpServer {
   const server = new McpServer({ name: "cairn", version }, { instructions: INSTRUCTIONS });
   const withApi = async (fn: (api: Api) => Promise<CallToolResult>): Promise<CallToolResult> => {
     let api: Api | undefined;
@@ -61,12 +65,19 @@ export function createMcpServer(connect: () => Promise<Api>, version = "0.0.0"):
     },
     ({ query, project, since, limit }) =>
       withApi(async (api) => {
-        const res = await api.search({ query, limit: limit ?? 10, ...(project ? { project } : {}), ...(since ? { since } : {}) });
+        const res = await api.search({
+          query,
+          limit: limit ?? 10,
+          ...(project ? { project } : {}),
+          ...(since ? { since } : {}),
+          ...(options.session ? { askingSession: options.session } : {}),
+        });
         if (res.groups.length === 0) return text("No matches in past sessions.");
         const lines = [DATA_NOTE];
         if (res.rerankError) lines.push(`(Reranker unavailable: ${res.rerankError}. Results are unreranked.)`);
         for (const g of res.groups) {
-          lines.push("", `## ${g.project} · ${session(g.sessionName, g.session)} · session ${g.session}`);
+          const own = g.session === options.session ? " · this session, from before it was compacted" : "";
+          lines.push("", `## ${g.project} · ${session(g.sessionName, g.session)} · session ${g.session}${own}`);
           for (const h of g.hits) {
             const x = h.exchange;
             lines.push(`#${x.seq} · ${when(x.at)}`, `user: ${oneLine(x.user, 400)}`, `match: ${oneLine(h.snippet.replace(/[«»]/g, ""), 700)}`);
@@ -177,5 +188,6 @@ export function createMcpServer(connect: () => Promise<Api>, version = "0.0.0"):
 export async function serveMcp(connect: () => Promise<Api>, version?: string): Promise<void> {
   console.log = console.error;
   console.info = console.error;
-  await createMcpServer(connect, version).connect(new StdioServerTransport());
+  const session = process.env.CLAUDE_CODE_SESSION_ID;
+  await createMcpServer(connect, version, session ? { session } : {}).connect(new StdioServerTransport());
 }
