@@ -50,6 +50,7 @@ export async function startDaemon(core: Core, options: DaemonOptions): Promise<D
         log(`indexed in ${Date.now() - started} ms: ${result.appended} new exchanges, ${result.embedded} embedded, ${result.labelled} labelled`);
       }
       if (result.embedError) log(`embedding skipped: ${result.embedError}`);
+      if (result.failed) log(`set aside ${result.failed} exchanges that failed to embed (cairn index --retry-failed)`);
       return result;
     } catch (e) {
       core.daemon!.lastError = e instanceof Error ? e.message : String(e);
@@ -76,10 +77,11 @@ export async function startDaemon(core: Core, options: DaemonOptions): Promise<D
       connection.onClose(unsubscribe);
       return history;
     },
-    trigger: async () => {
+    trigger: async (params) => {
+      const retried = (params as { retryFailed?: boolean } | undefined)?.retryFailed ? core.retryFailed() : 0;
       const busy = queue.busy;
       kick();
-      return { scheduled: true, busy };
+      return { scheduled: true, busy, retried };
     },
   });
   const roots = core.sources.flatMap((s) => s.roots());

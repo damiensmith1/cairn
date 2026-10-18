@@ -94,9 +94,11 @@ paths = ["~/.claude/projects", "~/work-claude/projects"]
 
 - Done: Claude Code's default follows its own `CLAUDE_CONFIG_DIR`
   (`<config dir>/projects`); `CLAUDE_PROJECTS_DIR` overrides it directly.
-- Planned: `paths` in `config.toml`; `cairn init` and the dashboard's
-  Sources screen show what was detected ("Claude Code: 404 sessions in
-  ~/.claude/projects") and let you add or change paths. Claude Code first. Codex keeps local session logs too,
+- Done (2026-10-18): `paths` in `~/.cairn/config.toml`, written by
+  `cairn init`, which shows what it detected ("Watch Claude Code sessions
+  in ~/.claude/projects (404 found)?") and takes extra folders. Without a
+  config file, the default above applies.
+- Planned: the dashboard's Sources screen to change them. Claude Code first. Codex keeps local session logs too,
 so it should be a small plug-in once its format is checked. Others
 (Gemini CLI, Cursor, Aider) follow the same interface.
 
@@ -134,29 +136,63 @@ Qwen3 uses ~1.5 GB while embedding; Laya ~0.6–1.8 GB when loaded.
 
 ## First run
 
-`cairn init` (or the first `cairn` launch) walks through:
+`cairn init` walks through these steps (built 2026-10-18 unless marked
+later):
 
-1. **Check the machine:** RAM, free disk, Node version.
-2. **Ollama:** detect it; offer to install it if missing; pull
-   `qwen3-embedding:0.6b` (~640 MB).
-3. **Query understanding (optional):** "Install Laya for free-text
-   questions?" (size depends on the runtime: ONNX in Node if `laya-ts`
-   passes, else a ~2.2 GB Python sidecar) Explains the trade-off: without it, free-text
-   questions in the CLI fall back to rules and plain similarity.
-4. **Sources:** detect installed agents (Claude Code, Codex, …) and let
-   you pick which to watch.
-5. **Projects:** propose a project list from what it finds, with
-   aliases, used for project detection.
-6. **Service:** install and start cairnd.
-7. **Backfill:** index existing history in the background with progress
-   (~50 min for the author's history), resumable.
-8. **MCP:** offer to register `cairn mcp` with the detected agents.
+1. **Machine:** Node ≥ 22 and ≥ 2 GB free disk (stops otherwise); warns
+   under 8 GB RAM.
+2. **Ollama:** detect it (the app, a Homebrew formula or another CLI
+   install). If it's missing, ask, then run `brew install ollama` (or point
+   to ollama.com without Homebrew). Start it the way it's installed, then
+   pull `qwen3-embedding:0.6b` (~640 MB) with progress. Ollama keeps
+   partial layers, so an interrupted pull resumes; init retries it 5 times.
+3. **Reranker:** fetch MiniLM-L6 (~23 MB) into `~/.cairn/models/`. A
+   broken cache (download cut short) is deleted and fetched once more.
+4. **Sources:** detect Claude Code's projects folder, count its sessions,
+   confirm, take extra folders, write `~/.cairn/config.toml` (0600).
+5. **API key** for `cairn ask` (optional): a hidden prompt; empty skips
+   (remembered, so later runs don't ask again). The key is checked for
+   shape, then with Anthropic (a free `models.retrieve` of Claude Haiku
+   5.5, which also confirms access), then stored in the **macOS
+   Keychain**, written through `security -i` on stdin so it never appears
+   in a process's arguments. It's never written to a file or log and never
+   sent to cairnd; `ask` reads it in the caller's process.
+   `ANTHROPIC_API_KEY` overrides it. Other platforms: `~/.cairn/credentials`
+   (0600). Afterwards `cairn key set|remove|status` adds, replaces,
+   removes or reports it (init skips a finished step, so it isn't the
+   place to change the key). Note: the `security`
+   tool is on the item's access list, so a process running as the user can
+   read it that way, as with any CLI-stored Keychain item.
+6. **Service:** install and start cairnd (launchd), and restart it when
+   the sources changed after it started.
+7. **Backfill:** cairnd indexes existing history; init shows its progress
+   until done, or Enter leaves it running (~50 min for the author's
+   history).
+8. Later: **query understanding** (Laya, optional), a **project list**
+   with aliases, and registering **`cairn mcp`** with the detected agents.
+
+**Resumable.** Each step checks the real state first (is the model there,
+is the key stored, did cairnd start after the config changed) and only
+does what's missing, so after Ctrl-C, a crash or a reboot, `cairn init`
+picks up where things stand. `~/.cairn/init.json` records each step's
+outcome so a rerun can say where the last one stopped. `cairn init --check`
+only reports. The backfill itself survives crashes on its own: cursors
+and the unembedded queue live in the store (tested: `kill -9` at 96/200
+exchanges, restart, the other 104 embedded, no duplicates).
+
+**Fault-tolerant embedding.** A failed batch is retried with backoff
+(1 s, 4 s, 15 s). If Ollama itself is down the run stops and the next one
+resumes. Otherwise the batch is embedded one exchange at a time and any
+that still fail are recorded; after 3 failed runs an exchange is set aside
+so it can't block the rest (`cairn status` shows the count;
+`cairn index --retry-failed` queues them again).
 
 ## CLI
 
 ```
 cairn                         dashboard
-cairn init                    first-run setup (re-runnable)
+cairn init                    first-run setup (resumable; --check only reports)
+cairn key set|remove|status   the Anthropic key ask uses (macOS Keychain)
 cairn search <query>          hybrid search, top 10 reranked with MiniLM (--no-rerank to skip)
 cairn decisions <query>       intent: decision (labels boost decisions)
 cairn unresolved <query>      intent: open questions ("open" is the passage-opening operation)
@@ -253,8 +289,9 @@ A terminal UI built with Ink (React for terminals):
       candidate).
 - [ ] **Linux support:** a systemd user unit instead of launchd.
 - [x] **What `ask()` uses for answers:** the Anthropic API with the
-      user's key (`ANTHROPIC_API_KEY`), model **Claude Haiku 5.5**: cheap
-      and fast, enough to answer from retrieved passages. Decided by the
-      author, 2026-10-18.
+      user's key, model **Claude Haiku 5.5**: cheap and fast, enough to
+      answer from retrieved passages. Decided by the author, 2026-10-18.
+      The key is stored by `cairn init` in the macOS Keychain
+      (`ANTHROPIC_API_KEY` overrides it); see First run.
 - [ ] **Upgrades:** re-embedding when the embedding model changes (the
       store is the source of truth; `rebuild` covers it).

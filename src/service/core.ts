@@ -1,5 +1,6 @@
 import { statSync } from "node:fs";
 import { homedir } from "node:os";
+import { expandHome, loadConfig } from "../config.js";
 import { OllamaEmbedder } from "../embed.js";
 import type { Embedder } from "../embed.js";
 import { embedPending, extractPending, ingest } from "../ingest.js";
@@ -54,17 +55,25 @@ export class Core implements Api {
     readonly dbFile = ":memory:",
   ) {}
 
-  /** The real thing: the store under ~/.cairn, Ollama embeddings, Claude Code sessions. */
+  /** The real thing: the store under ~/.cairn, Ollama embeddings, the sources in config.toml. */
   static open(): Core {
     const embedder = new OllamaEmbedder();
+    const claude = loadConfig()?.sources?.["claude-code"];
+    // Without a config (before `cairn init`), watch Claude Code where it writes.
+    const sources = claude ? (claude.enabled ? claude.paths.map((p) => new ClaudeCodeSource(expandHome(p))) : []) : [new ClaudeCodeSource(claudeProjectsDir())];
     return new Core(
       new Store(dbPath(), embedder.dims),
       embedder,
-      [new ClaudeCodeSource(claudeProjectsDir())],
+      sources,
       loadLabelModel(labelModelPath()),
       new OnnxReranker(),
       dbPath(),
     );
+  }
+
+  /** Puts exchanges set aside after failing to embed back in the queue; returns how many. */
+  retryFailed(): number {
+    return this.store.clearEmbedFailures(this.embedder.id);
   }
 
   /** Reads what's new, then links, embeds and labels it. Safe to run any time; it only adds. */
@@ -75,7 +84,7 @@ export class Core implements Api {
     if (r.changed) this.events?.emit({ type: "read", files: r.files, changed: r.changed, appended: r.appended, ms: Date.now() - t0 });
     const linked = extractPending(this.store);
     if (linked) this.events?.emit({ type: "pointers", exchanges: linked });
-    const result: IndexResult = { ...r, linked, embedded: 0, chunks: 0, labelled: 0, labels: Boolean(this.labels) };
+    const result: IndexResult = { ...r, linked, embedded: 0, chunks: 0, failed: 0, labelled: 0, labels: Boolean(this.labels) };
     if (options.embed === false) return result;
     const problem = await this.embedder.problem?.();
     if (problem) return { ...result, embedError: problem };
@@ -89,6 +98,7 @@ export class Core implements Api {
     });
     result.embedded = p.done;
     result.chunks = p.chunks;
+    result.failed = p.failed;
     if (p.done) this.events?.emit({ type: "embedded", exchanges: p.done, chunks: p.chunks, ms: Date.now() - t1 });
     if (this.labels) result.labelled = labelPending(this.store, this.labels, this.embedder.id);
     if (result.labelled) this.events?.emit({ type: "labelled", exchanges: result.labelled });

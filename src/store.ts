@@ -24,6 +24,8 @@ export interface StoreStats {
   pointers: number;
   linked: number;
   labelled: number;
+  /** Exchanges set aside after repeated embedding failures. */
+  failed: number;
 }
 
 interface Row {
@@ -68,6 +70,9 @@ const fromRow = (r: Row): StoredExchange => ({
  */
 export const contentKey = (x: Pick<Exchange, "at" | "user" | "assistant">) =>
   createHash("sha256").update(`${x.at}\0${x.user}\0${x.assistant}`).digest("hex");
+
+/** Times an exchange may fail to embed on its own before it's set aside (cairn index --retry-failed retries). */
+export const MAX_EMBED_ATTEMPTS = 3;
 
 /** A search result's position in one ranked list, with the text that matched. */
 export interface Match {
@@ -144,6 +149,12 @@ export class Store {
         PRIMARY KEY (exchange_seq, kind, target, relation)
       );
       CREATE INDEX IF NOT EXISTS pointers_target ON pointers(kind, target);
+      -- Exchanges that failed to embed on their own, so one bad item can't block a backfill.
+      CREATE TABLE IF NOT EXISTS embed_failures (
+        exchange_seq INTEGER NOT NULL, model TEXT NOT NULL, error TEXT NOT NULL,
+        attempts INTEGER NOT NULL, at TEXT NOT NULL,
+        PRIMARY KEY (exchange_seq, model)
+      );
       CREATE TABLE IF NOT EXISTS labels (
         exchange_seq INTEGER NOT NULL, version TEXT NOT NULL,
         p_decision REAL NOT NULL, p_unresolved REAL NOT NULL, topic TEXT NOT NULL, topic_probs TEXT NOT NULL,
@@ -260,24 +271,51 @@ export class Store {
       .run(location, JSON.stringify(cursor.state), cursor.size, cursor.mtimeMs);
   }
 
-  /** Stored exchanges that have no chunks yet for `model`, oldest first. */
+  /** Stored exchanges with no chunks yet for `model`, oldest first, skipping ones set aside after repeated failures. */
   unembedded(model: string, limit: number): StoredExchange[] {
     const rows = this.db
       .prepare(
         `SELECT e.* FROM exchanges e
-         WHERE NOT EXISTS (SELECT 1 FROM chunks c WHERE c.exchange_seq = e.seq AND c.model = ?)
-         ORDER BY e.seq LIMIT ?`,
+         WHERE NOT EXISTS (SELECT 1 FROM chunks c WHERE c.exchange_seq = e.seq AND c.model = @model)
+           AND NOT EXISTS (SELECT 1 FROM embed_failures f WHERE f.exchange_seq = e.seq AND f.model = @model AND f.attempts >= @max)
+         ORDER BY e.seq LIMIT @limit`,
       )
-      .all(model, limit) as Row[];
+      .all({ model, limit, max: MAX_EMBED_ATTEMPTS }) as Row[];
     return rows.map(fromRow);
   }
 
   countUnembedded(model: string): number {
     return (
       this.db
-        .prepare(`SELECT COUNT(*) n FROM exchanges e WHERE NOT EXISTS (SELECT 1 FROM chunks c WHERE c.exchange_seq = e.seq AND c.model = ?)`)
-        .get(model) as { n: number }
+        .prepare(
+          `SELECT COUNT(*) n FROM exchanges e
+           WHERE NOT EXISTS (SELECT 1 FROM chunks c WHERE c.exchange_seq = e.seq AND c.model = @model)
+             AND NOT EXISTS (SELECT 1 FROM embed_failures f WHERE f.exchange_seq = e.seq AND f.model = @model AND f.attempts >= @max)`,
+        )
+        .get({ model, max: MAX_EMBED_ATTEMPTS }) as { n: number }
     ).n;
+  }
+
+  /** Records that an exchange failed to embed on its own; after MAX_EMBED_ATTEMPTS it's set aside. */
+  recordEmbedFailure(seq: number, model: string, error: string) {
+    this.db
+      .prepare(
+        `INSERT INTO embed_failures (exchange_seq, model, error, attempts, at) VALUES (?, ?, ?, 1, ?)
+         ON CONFLICT(exchange_seq, model) DO UPDATE SET attempts = attempts + 1, error = excluded.error, at = excluded.at`,
+      )
+      .run(seq, model, error.slice(0, 500), new Date().toISOString());
+  }
+
+  /** Exchanges set aside after repeated embedding failures. */
+  embedFailures(model: string): { seq: number; error: string; attempts: number }[] {
+    return this.db
+      .prepare("SELECT exchange_seq seq, error, attempts FROM embed_failures WHERE model = ? AND attempts >= ?")
+      .all(model, MAX_EMBED_ATTEMPTS) as { seq: number; error: string; attempts: number }[];
+  }
+
+  /** Gives set-aside exchanges another chance. */
+  clearEmbedFailures(model: string): number {
+    return this.db.prepare("DELETE FROM embed_failures WHERE model = ?").run(model).changes;
   }
 
   /** Stores an exchange's chunks and their vectors together. */
@@ -485,6 +523,7 @@ export class Store {
       pointers: one("SELECT COUNT(*) n FROM pointers"),
       linked: one("SELECT COUNT(DISTINCT exchange_seq) n FROM pointers"),
       labelled: one("SELECT COUNT(*) n FROM labels WHERE version = ?", labelVersion),
+      failed: one("SELECT COUNT(*) n FROM embed_failures WHERE model = ? AND attempts >= ?", model, MAX_EMBED_ATTEMPTS),
     };
   }
 

@@ -331,6 +331,9 @@ Each links to the full write-up in [[experiments]].
 | Distributed via npm and the author's Homebrew tap | Same path as Clance; brew pulls in Node, Ollama and uv |
 | Reranker and link expansion optional, kept only if the eval shows a gain | Each adds latency; earn it with data |
 | LLM notes only if the retrieval eval says decisions are missed | Decide with data; adds generated text |
+| `cairn init` is resumable by checking real state per step, not by replaying a log (2026-10-18) | After a crash or Ctrl-C the machine is the truth; a state file only says where the last run stopped |
+| The Anthropic key lives in the macOS Keychain, written via `security -i` on stdin; `ANTHROPIC_API_KEY` overrides (2026-10-18) | Encrypted at rest, not in files, history or argv; never sent to cairnd |
+| An exchange that fails to embed 3 runs in a row is set aside, not retried forever (2026-10-18) | One bad exchange mustn't stall the backfill; `index --retry-failed` brings them back |
 
 ## Build order
 
@@ -346,6 +349,11 @@ Each links to the full write-up in [[experiments]].
    (launchd), JSON-RPC over `~/.cairn/cairnd.sock`, the CLI as a thin
    client with an in-process fallback; `cairn live` shows its status and
    activity as it happens. (b) built 2026-10-18: `open`, `brief`, `ask`.
+   (c) built 2026-10-18: `cairn init` (machine, Ollama, reranker,
+   sources, API key in the Keychain, service, backfill), resumable, with
+   `--check`; `cairn key set|remove|status` manages the key afterwards;
+   fault-tolerant embedding. Laya, projects and
+   MCP registration join init with (d) and (e). See [[packaging]].
 4. **Retrieval eval:** labelled questions with known answer sessions;
    tune chunking, fusion, boosts, the reranker and link expansion against
    it. Labels drafted by an LLM and checked by a second, blind LLM

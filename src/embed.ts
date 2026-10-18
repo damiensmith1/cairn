@@ -15,12 +15,17 @@ export interface Embedder {
 export const QUERY_INSTRUCTION =
   "Instruct: Given a question about past conversations with a coding agent, retrieve the passages that answer it\nQuery: ";
 
+/** The embedding model cairn pulls and uses (docs/experiments.md). */
+export const DEFAULT_EMBED_MODEL = "qwen3-embedding:0.6b";
+
 export interface OllamaOptions {
   model?: string;
   url?: string;
   dims?: number;
   /** Context window per input; chunks are ~1k tokens. */
   numCtx?: number;
+  /** Give up on a request after this long, so a sleeping laptop or a stuck server can't hang a backfill. */
+  timeoutMs?: number;
 }
 
 /** Embeddings from a local Ollama server. */
@@ -30,12 +35,14 @@ export class OllamaEmbedder implements Embedder {
   private readonly model: string;
   private readonly url: string;
   private readonly numCtx: number;
+  private readonly timeoutMs: number;
 
   constructor(options: OllamaOptions = {}) {
-    this.model = options.model ?? "qwen3-embedding:0.6b";
+    this.model = options.model ?? DEFAULT_EMBED_MODEL;
     this.url = options.url ?? process.env.OLLAMA_HOST ?? "http://localhost:11434";
     this.dims = options.dims ?? 1024;
     this.numCtx = options.numCtx ?? 2048;
+    this.timeoutMs = options.timeoutMs ?? 120_000;
     this.id = `ollama:${this.model}`;
   }
 
@@ -46,6 +53,7 @@ export class OllamaEmbedder implements Embedder {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ model: this.model, input, options: { num_ctx: this.numCtx } }),
+      signal: AbortSignal.timeout(this.timeoutMs),
     });
     if (!res.ok) throw new Error(`Ollama returned ${res.status}: ${(await res.text()).slice(0, 200)}`);
     const { embeddings } = (await res.json()) as { embeddings: number[][] };
@@ -58,7 +66,7 @@ export class OllamaEmbedder implements Embedder {
   /** What's missing for this embedder to work, or undefined if it's ready. */
   async problem(): Promise<string | undefined> {
     try {
-      const res = await fetch(`${this.url}/api/tags`);
+      const res = await fetch(`${this.url}/api/tags`, { signal: AbortSignal.timeout(5000) });
       const { models } = (await res.json()) as { models: { name: string }[] };
       if (!models.some((m) => m.name === this.model)) return `Ollama is running but ${this.model} isn't pulled: ollama pull ${this.model}`;
     } catch {

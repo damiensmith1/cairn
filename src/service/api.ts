@@ -48,6 +48,8 @@ export interface IndexResult {
   linked: number;
   embedded: number;
   chunks: number;
+  /** Exchanges set aside this run after failing to embed on their own. */
+  failed: number;
   labelled: number;
   labels: boolean;
   /** Why embedding was skipped, e.g. Ollama isn't running. */

@@ -2,13 +2,14 @@
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { ask, explainAskError } from "./ask.js";
+import { keyStore } from "./credentials.js";
 import { runLive } from "./live.js";
 import { labelModelPath, logDir, socketPath } from "./paths.js";
 import type { Intent, SessionGroup } from "./search.js";
 import type { Api } from "./service/api.js";
 import { Core } from "./service/core.js";
 import { startDaemon } from "./service/daemon.js";
-import { install, isLoaded, plistPath, uninstall } from "./service/launchd.js";
+import { isLoaded, plistPath, startService, uninstall } from "./service/launchd.js";
 import { AlreadyRunning, connect, RemoteApi } from "./service/rpc.js";
 
 const USAGE = `cairn: searchable memory for agent sessions
@@ -25,6 +26,11 @@ const USAGE = `cairn: searchable memory for agent sessions
   cairn related <session>                sessions sharing the most files, commits and links
   cairn status                           what's stored and indexed, and whether cairnd is running
   cairn index [--no-embed] [--limit N]   catch up now (asks cairnd if it's running)
+     --retry-failed                      also retry exchanges set aside after failing to embed
+
+  cairn init [--check]                   set up: Ollama, models, sessions, API key, cairnd, backfill
+                                         resumable: re-run it after a crash or Ctrl-C; --check only reports
+  cairn key set|remove|status            the Anthropic API key cairn ask uses (kept in the macOS Keychain)
 
   cairn live                             watch cairnd work: status and activity as it happens
   cairn service start|stop|status        run cairnd in the background, at every login
@@ -52,11 +58,13 @@ async function remote(): Promise<RemoteApi | undefined> {
 const api = async (): Promise<Api> => (await remote()) ?? Core.open();
 
 async function index(args: string[]) {
-  const { values } = parseArgs({ args, options: { "no-embed": { type: "boolean" }, limit: { type: "string" } } });
+  const { values } = parseArgs({ args, options: { "no-embed": { type: "boolean" }, limit: { type: "string" }, "retry-failed": { type: "boolean" } } });
+  const retryFailed = Boolean(values["retry-failed"]);
   const daemon = await remote();
   if (daemon) {
     try {
-      const { busy } = await daemon.trigger();
+      const { busy, retried } = await daemon.trigger({ retryFailed });
+      if (retryFailed) console.log(`${retried} set-aside exchanges queued to embed again.`);
       console.log(busy ? "cairnd is already indexing; it will catch up again when done." : "cairnd is indexing in the background.");
       console.log(dim("`cairn status` shows progress."));
     } finally {
@@ -66,6 +74,7 @@ async function index(args: string[]) {
   }
   const core = Core.open();
   try {
+    if (retryFailed) console.log(`${core.retryFailed()} set-aside exchanges queued to embed again.`);
     const t = Date.now();
     const r = await core.index(
       { ...(values["no-embed"] ? { embed: false } : {}), ...(values.limit ? { limit: Number(values.limit) } : {}) },
@@ -81,6 +90,7 @@ async function index(args: string[]) {
     if (r.linked) console.log(`extracted pointers from ${r.linked} exchanges`);
     if (r.embedError) return fail(r.embedError);
     if (r.embedded) console.log(`embedded ${r.embedded} exchanges (${r.chunks} chunks) ${dim(`in ${Math.round((Date.now() - t) / 1000)} s`)}`);
+    if (r.failed) console.log(`set aside ${r.failed} exchanges that wouldn't embed ${dim("(cairn index --retry-failed tries them again)")}`);
     if (r.labelled) console.log(`labelled ${r.labelled} exchanges`);
     if (!r.labels && values["no-embed"] === undefined) console.log(dim(`no label model at ${labelModelPath()}: labels are off`));
   } finally {
@@ -256,6 +266,7 @@ async function status() {
     console.log(`store      ${s.store} (${s.sizeMb.toFixed(1)} MB)`);
     console.log(`exchanges  ${s.stats.exchanges} in ${s.stats.sessions} sessions`);
     console.log(`embedded   ${s.stats.embedded} exchanges, ${s.stats.chunks} chunks (${s.embedder})`);
+    if (s.stats.failed) console.log(`           ${s.stats.failed} set aside after failing to embed ${dim("(cairn index --retry-failed)")}`);
     console.log(`pointers   ${s.stats.pointers} from ${s.stats.linked} exchanges`);
     const quality = s.labels?.metrics ? ` (cv: ${Object.entries(s.labels.metrics).map(([k, v]) => `${k} ${v.toFixed(2)}`).join(", ")})` : "";
     console.log(`labels     ${s.labels ? `${s.stats.labelled} exchanges, model ${s.labels.version}${quality}` : "off: no label model"}`);
@@ -293,23 +304,13 @@ async function daemon() {
 async function service(args: string[]) {
   const sub = args[0];
   if (sub === "start") {
-    let file: string;
     try {
-      file = await install(logFile());
+      const file = await startService(logFile(), socketPath(), connect);
+      console.log(`cairnd is running, and will start at every login.\n${dim(`${file}\nlogs: ${logFile()}`)}`);
     } catch (e) {
-      return fail(e instanceof Error ? e.message : String(e));
+      fail(e instanceof Error ? e.message : String(e));
     }
-    // The first catch-up after an install can keep cairnd busy for a while.
-    for (let i = 0; i < 60; i++) {
-      const c = await connect(socketPath(), 1000);
-      if (c) {
-        c.close();
-        console.log(`cairnd is running, and will start at every login.\n${dim(`${file}\nlogs: ${logFile()}`)}`);
-        return;
-      }
-      await new Promise((r) => setTimeout(r, 500));
-    }
-    return fail(`cairnd was installed but isn't answering yet; see ${logFile()}`);
+    return;
   }
   if (sub === "stop") {
     await uninstall();
@@ -326,8 +327,42 @@ async function service(args: string[]) {
   fail(USAGE);
 }
 
+async function init(args: string[]) {
+  const { values } = parseArgs({ args, options: { check: { type: "boolean" } } });
+  // Loaded only here: the prompts and the Anthropic SDK would slow every other command's start.
+  const { runInit } = await import("./init.js");
+  if (!(await runInit({ check: Boolean(values.check) }))) process.exitCode = 1;
+}
+
+async function key([sub]: string[]) {
+  const store = keyStore();
+  const env = Boolean(process.env.ANTHROPIC_API_KEY);
+  if (sub === "set") {
+    const { runKeySet } = await import("./init.js");
+    if (!(await runKeySet())) process.exitCode = 1;
+    return;
+  }
+  if (sub === "remove") {
+    const had = Boolean(store.get());
+    store.delete();
+    console.log(had ? `Removed the key from the ${store.where}.` : `No key stored in the ${store.where}.`);
+    if (env) console.log(dim("ANTHROPIC_API_KEY is still set in your environment; cairn ask uses it."));
+    return;
+  }
+  if (sub === "status") {
+    const stored = Boolean(store.get());
+    if (env) console.log(`cairn ask uses ANTHROPIC_API_KEY${stored ? ` (over the key in the ${store.where})` : ""}.`);
+    else if (stored) console.log(`cairn ask uses the key in the ${store.where}.`);
+    else console.log("No key: cairn ask needs one. Run cairn key set, or set ANTHROPIC_API_KEY.");
+    return;
+  }
+  fail(USAGE);
+}
+
 const [command, ...rest] = process.argv.slice(2);
 const commands: Record<string, (args: string[]) => Promise<void>> = {
+  init,
+  key,
   index,
   search: searchAs(),
   decisions: searchAs("decision"),

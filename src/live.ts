@@ -111,7 +111,7 @@ export function header(s: StatusResponse | undefined, lastSweep: string | undefi
   const d = s.daemon;
   const up = Math.round((Date.now() - Date.parse(d.startedAt)) / 60_000);
   const doing = d.progress ? `embedding ${d.progress.done}/${d.progress.total}` : d.indexing ? "indexing" : "idle";
-  const backlog = s.stats.exchanges - s.stats.embedded;
+  const backlog = s.stats.exchanges - s.stats.embedded - s.stats.failed;
   return [
     `cairnd · pid ${d.pid} · up ${up} min · ${doing} · ollama ${s.ollama} · reranker ${d.reranker}`,
     `store ${s.stats.exchanges.toLocaleString()} exchanges · ${s.stats.embedded.toLocaleString()} embedded · ${backlog.toLocaleString()} backlog · ${s.stats.pointers.toLocaleString()} pointers · ${s.stats.labelled.toLocaleString()} labelled`,

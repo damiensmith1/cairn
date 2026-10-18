@@ -181,7 +181,7 @@ export class RemoteApi implements Api {
   brief = (session: string) => this.client.call<BriefResponse | null>("brief", { session });
   status = () => this.client.call<StatusResponse>("status");
   /** Asks cairnd to index now. Returns at once; `busy` means a run was already going. */
-  trigger = () => this.client.call<{ scheduled: boolean; busy: boolean }>("trigger");
+  trigger = (options: { retryFailed?: boolean } = {}) => this.client.call<{ scheduled: boolean; busy: boolean; retried: number }>("trigger", options);
   /** Streams cairnd's events to `listener`; resolves with the recent ones. */
   subscribe = async (listener: (e: CairnEvent) => void): Promise<CairnEvent[]> => {
     this.client.onNotification((method, params) => {

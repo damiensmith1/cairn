@@ -94,6 +94,23 @@ export async function install(logFile: string): Promise<string> {
   }
 }
 
+/**
+ * Installs and starts cairnd, then waits until it answers on its socket (its first catch-up can
+ * keep it busy for a while). Returns the plist path, or throws if it never answers.
+ */
+export async function startService(logFile: string, socket: string, connect: (path: string, timeoutMs: number) => Promise<{ close(): void } | undefined>): Promise<string> {
+  const file = await install(logFile);
+  for (let i = 0; i < 60; i++) {
+    const c = await connect(socket, 1000);
+    if (c) {
+      c.close();
+      return file;
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error(`cairnd was installed but isn't answering yet; see ${logFile}`);
+}
+
 /** Stops cairnd and removes the LaunchAgent, so it won't start at login. */
 export async function uninstall() {
   await bootout();
