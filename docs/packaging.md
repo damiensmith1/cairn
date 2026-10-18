@@ -37,11 +37,25 @@ through MCP.
 - **the watcher** for every enabled source,
 - **the store**: it is the only writer to the SQLite file,
 - **the models**, kept warm so queries are fast: Qwen3 embeddings through
-  Ollama, and Laya through a Python sidecar it starts and stops,
+  Ollama (which unloads it when idle), the MiniLM reranker (unloaded after
+  ~10 idle minutes), and Laya later,
 - **the query server**: understand, retrieve, rank, shape.
 
-Started at login by launchd (a LaunchAgent that setup installs); `cairn
-service start|stop|status` manages it.
+**The watcher** (decided 2026-10-18): `fs.watch` on each source's folder
+(FSEvents on macOS) triggers a catch-up after a short debounce, plus a
+sweep every 60 s that catches missed events and completes exchanges idle
+for 10 minutes (which no file change announces). Work runs through one
+queue: ingest → pointers → embed → labels, one job at a time; a trigger
+during a job schedules exactly one more run.
+
+Started at login by launchd (a LaunchAgent that setup installs), at
+normal priority (`ProcessType: Standard`), restarted if it crashes.
+Background priority was tried and reversed: macOS throttled searches
+from ~0.5 s to 6–44 s ([[experiments]]). Keeping a backfill from taking
+over the machine is a matter of limiting Ollama, which does the heavy
+work (open question below). `cairn service
+start|stop|status` manages it; `cairn daemon` runs it in the foreground.
+Logs go to `~/.cairn/logs/cairnd.log`.
 
 **Thin clients** talk to cairnd over a local socket and hold no models:
 - `cairn` (CLI and dashboard),
@@ -190,8 +204,18 @@ A terminal UI built with Ink (React for terminals):
   depends on Node, Ollama and `uv`.
 
 ## Open questions
-- [ ] **Socket protocol** between clients and cairnd: JSON-RPC over a
-      Unix socket, or local HTTP.
+- [x] **Socket protocol:** JSON-RPC 2.0 over a Unix socket at
+      `~/.cairn/cairnd.sock` (owner-only), newline-delimited. No port, and
+      access is controlled by file permissions; a localhost HTTP port can
+      be reached by any local process or web page. Decided 2026-10-18.
+- [x] **CLI without cairnd:** when the socket isn't there, the CLI does
+      the work in process, as before. Decided 2026-10-18.
+- [ ] **Throttling a backfill:** limit Ollama's threads per request
+      (`num_thread`) or pace embedding batches, so the first backfill
+      leaves the machine usable. Measure the backfill-speed cost.
+- [ ] **Re-reading the open exchange:** the watcher re-reads the exchange
+      still in progress from its start on every change; cache its parse
+      for very long turns.
 - [ ] **Codex log format:** location, schema, and how sessions and turns
       map to exchanges.
 - [ ] **Laya in Node via ONNX** instead of a Python sidecar: would remove

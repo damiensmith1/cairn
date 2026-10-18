@@ -10,6 +10,35 @@ Spikes run to settle [[design]] questions with data. Newest first. Raw
 data (conversation excerpts, labels, scores) stays outside the repo in
 `~/.cairn/spikes/`, since it's the author's own conversations.
 
+## 2026-10-18 · cairnd: first run, and why not background priority
+
+**Setup.** cairnd run in the foreground on the real store (built CLI),
+first under `taskpolicy -b` (the same background QoS launchd's
+`ProcessType: Background` gives), then at normal priority. It caught up
+on a backlog of 32 exchanges (embedded and labelled in 19 s, at
+background priority). Searches from the CLI through the socket, top 10
+reranked, timed end to end (CLI start + query):
+
+| cairnd priority | First search | Next searches |
+|---|---|---|
+| Background QoS (`taskpolicy -b`) | 44.3 s | 6.2–29.1 s |
+| **Normal** | **1.06 s** | **0.43–0.59 s** |
+
+**Findings**
+- **Background priority is unusable for a process that answers
+  searches**: macOS throttles its CPU (efficiency cores) and especially
+  its disk I/O, ~40× slower here. cairnd runs at normal priority
+  (`ProcessType: Standard`); the decision to use Background is reversed.
+- **Through cairnd, a reranked search is faster than in process** (~0.5 s
+  vs ~0.6 s from the CLI), since the reranker stays loaded.
+- The heavy work of a backfill is Ollama's (embedding), a separate
+  process, so cairnd's own priority barely protects the machine anyway.
+  Throttling a backfill means limiting Ollama (e.g. its `num_thread`
+  option per request) or pacing batches: open.
+- The active session's log changes every few seconds, so the watcher
+  triggers often and the exchange still in progress is re-read from its
+  start each time. Cheap so far, but worth caching for very long turns.
+
 ## 2026-10-18 · Reranker wired into cairn: end to end
 
 **What changed.** `search()` takes a `reranker`; it collects at least the

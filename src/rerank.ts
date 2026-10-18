@@ -11,6 +11,10 @@ export interface Reranker {
   readonly id: string;
   /** A relevance score per document, higher is better, in the documents' order. */
   score(query: string, documents: string[]): Promise<number[]>;
+  /** Frees the model; the next score() loads it again. */
+  unload?(): Promise<void>;
+  /** Whether the model is in memory. */
+  readonly loaded?: boolean;
 }
 
 /** Characters of each candidate the reranker reads: its user message, then the reply. */
@@ -41,7 +45,18 @@ type Tokenizer = (text: string[], options: Record<string, unknown>) => unknown;
 export class OnnxReranker implements Reranker {
   readonly id: string;
   private readonly options: Required<OnnxRerankerOptions>;
-  private loading: Promise<{ tokenizer: Tokenizer; model: Classifier }> | undefined;
+  private loading: Promise<{ tokenizer: Tokenizer; model: Classifier & { dispose?: () => Promise<unknown> } }> | undefined;
+
+  get loaded(): boolean {
+    return this.loading !== undefined;
+  }
+
+  async unload(): Promise<void> {
+    const loading = this.loading;
+    this.loading = undefined;
+    const model = await loading?.then((l) => l.model).catch(() => undefined);
+    await model?.dispose?.();
+  }
 
   constructor(options: OnnxRerankerOptions = {}) {
     this.options = {

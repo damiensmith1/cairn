@@ -10,8 +10,8 @@ clients. Sources are plug-ins per coding agent (Claude Code first).
 
 Status: build steps 1–2 work on real data: ingest, local embeddings,
 hybrid search, a MiniLM reranker (on by default), pointers
-(`refs`, `related`) and label probes with boosting (boost not yet tuned). No daemon, query understanding or MCP
-yet. See the build order in
+(`refs`, `related`) and label probes with boosting (boost not yet tuned). cairnd (watcher, socket, launchd)
+works; no open/brief/ask, init, query understanding or MCP yet. See the build order in
 docs/design.md.
 
 ## Commands
@@ -26,6 +26,10 @@ docs/design.md.
 - `npm run train-labels`: trains the label probes into `~/.cairn/models/labels.json`
   from labelled exchanges (the spike's data in `~/.cairn/spikes/decisions/`)
 - `npm run cairn -- status`
+- `npm run cairn -- daemon` runs cairnd in the foreground; `service start|stop|status`
+  installs it as a LaunchAgent (this changes the machine: ask before running it on the
+  author's Mac). Other commands talk to cairnd over `~/.cairn/cairnd.sock` when it's
+  running, else work in process.
 - Data lives in `~/.cairn/` (or `CAIRN_HOME`); tests use a temp dir and an
   in-memory store.
 

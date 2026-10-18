@@ -4,6 +4,8 @@ export interface Embedder {
   readonly id: string;
   readonly dims: number;
   embed(texts: string[], kind: "document" | "query"): Promise<Float32Array[]>;
+  /** What's missing for this embedder to work, or undefined if it's ready. */
+  problem?(): Promise<string | undefined>;
 }
 
 /**

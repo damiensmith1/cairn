@@ -20,7 +20,9 @@ export interface ReadResult {
 /** One coding agent's session logs. The rest of cairn only sees the exchanges it produces. */
 export interface Source {
   readonly id: string;
-  /** Every log file to watch. */
+  /** Folders to watch for changes. */
+  roots(): string[];
+  /** Every log file to read. */
   locations(): Promise<string[]>;
   /**
    * Complete exchanges in `location` after `state`. An exchange is complete when the next user

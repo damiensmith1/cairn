@@ -102,6 +102,8 @@ export class Store {
     }
     this.db = new Database(file);
     this.db.pragma("journal_mode = WAL");
+    // cairnd and a CLI may briefly overlap; wait for a lock instead of failing.
+    this.db.pragma("busy_timeout = 5000");
     sqliteVec.load(this.db);
     this.migrate();
   }

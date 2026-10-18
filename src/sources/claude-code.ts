@@ -77,6 +77,10 @@ export class ClaudeCodeSource implements Source {
 
   constructor(private readonly root: string) {}
 
+  roots(): string[] {
+    return [this.root];
+  }
+
   async locations(): Promise<string[]> {
     const out: string[] = [];
     let dirs: string[];

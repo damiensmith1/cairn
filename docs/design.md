@@ -326,8 +326,13 @@ Each links to the full write-up in [[experiments]].
    vector index, `search` in the CLI. Useful on day one.
 2. **Pointers**, `refs` and related sessions; **labels** (embedding probe)
    and label boosting. Built 2026-10-17; the boost needs tuning (step 4).
-3. **open, brief, ask**, the query-understanding step, and the MCP
-   adapter.
+3. **The rest, in this order (decided 2026-10-18):** (a) **cairnd** and
+   the watcher, with the CLI as a thin client; (b) **open, brief, ask**;
+   (c) **`cairn init`**; then (d) the **MCP server** and (e) **Laya** for
+   query understanding. Codex support much later. See [[packaging]].
+   (a) built 2026-10-18: `cairn daemon`, `cairn service start|stop|status`
+   (launchd), JSON-RPC over `~/.cairn/cairnd.sock`, the CLI as a thin
+   client with an in-process fallback.
 4. **Retrieval eval:** labelled questions with known answer sessions;
    tune chunking, fusion, boosts, the reranker and link expansion against
    it. Labels drafted by an LLM and checked by a second, blind LLM
