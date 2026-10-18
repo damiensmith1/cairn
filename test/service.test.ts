@@ -6,7 +6,7 @@ import { ClaudeCodeSource } from "../src/sources/claude-code.js";
 import { Store } from "../src/store.js";
 import { Core } from "../src/service/core.js";
 import { startDaemon } from "../src/service/daemon.js";
-import { plist } from "../src/service/launchd.js";
+import { nodePath, plist } from "../src/service/launchd.js";
 import { Coalescer } from "../src/service/queue.js";
 import { AlreadyRunning, connect, RemoteApi, serve } from "../src/service/rpc.js";
 import { Feed, formatEvent } from "../src/live.js";
@@ -108,6 +108,12 @@ describe("cairnd", () => {
 });
 
 describe("launchd plist", () => {
+  it("runs Node by a path that resolves to this same binary", async () => {
+    const { realpathSync } = await import("node:fs");
+    expect(realpathSync(nodePath())).toBe(realpathSync(process.execPath));
+    expect(nodePath()).not.toMatch(/\/Cellar\//);
+  });
+
   it("runs cairnd at login at normal priority, restarting only after crashes", () => {
     const xml = plist({ program: ["/usr/bin/node", "/a b/cli.js", "daemon"], env: { CAIRN_HOME: "/x&y" }, logFile: "/tmp/c.log" });
     expect(xml).toContain("<string>local.cairn.cairnd</string>");

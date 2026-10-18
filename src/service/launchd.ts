@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -13,9 +13,24 @@ const PASSED_ENV = ["CAIRN_HOME", "CLAUDE_CONFIG_DIR", "CLAUDE_PROJECTS_DIR", "O
 
 const xml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
+/**
+ * This Node, by a path that survives upgrades. Homebrew runs Node from a versioned Cellar folder
+ * that an upgrade deletes; the PATH entry (/opt/homebrew/bin/node) is a symlink that follows it.
+ * Only used when it is the same binary, so a different Node on the PATH isn't swapped in.
+ */
+export function nodePath(): string {
+  const which = spawnSync("which", ["node"], { encoding: "utf8" });
+  const found = which.status === 0 ? which.stdout.trim() : "";
+  try {
+    return found && realpathSync(found) === realpathSync(process.execPath) ? found : process.execPath;
+  } catch {
+    return process.execPath;
+  }
+}
+
 /** The command that runs cairnd: this Node, this CLI (and its loader flags under tsx), `daemon`. */
 export function daemonCommand(): string[] {
-  return [process.execPath, ...process.execArgv, resolve(process.argv[1]!), "daemon"];
+  return [nodePath(), ...process.execArgv, resolve(process.argv[1]!), "daemon"];
 }
 
 export function plist(options: { program: string[]; env: Record<string, string>; logFile: string }): string {

@@ -61,7 +61,7 @@ See [[background]] for why, and [[design]] for how.
 10. **Rebuild.** Any index or enricher can be rebuilt from the store alone.
 11. **Clients.** A CLI (search, open, brief, ask, refs, related) and a terminal
     dashboard (sources, status, search), and an MCP server (`search`,
-    `open`, `brief`, `refs`) usable from any MCP-capable agent. Both are
+    `open`, `brief`, `refs`, `related`) usable from any MCP-capable agent. Both are
     thin clients of a background service ([[packaging]]).
 12. **Guided setup.** A first run that checks the machine, installs or
     detects Ollama, pulls the embedding model, picks sources and projects, starts the service, backfills, and

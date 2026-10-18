@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import * as p from "@clack/prompts";
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statfsSync, statSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statfsSync, statSync, writeFileSync } from "node:fs";
 import { homedir, totalmem } from "node:os";
 import { join } from "node:path";
 import { ASK_MODEL } from "./ask.js";
@@ -11,7 +12,7 @@ import { hasBrew, hasModel, installOllama, ollamaInstall, ollamaRunning, pullMod
 import { cairnHome, claudeProjectsDir, logDir, socketPath } from "./paths.js";
 import { OnnxReranker } from "./rerank.js";
 import type { CairnEvent } from "./service/events.js";
-import { isLoaded, startService } from "./service/launchd.js";
+import { isLoaded, nodePath, startService } from "./service/launchd.js";
 import { connect, RemoteApi } from "./service/rpc.js";
 import { ClaudeCodeSource } from "./sources/claude-code.js";
 
@@ -253,6 +254,30 @@ function steps(options: { skipped: (id: string) => boolean }): Step[] {
       },
     },
     {
+      id: "mcp",
+      title: "Claude Code (MCP)",
+      async check() {
+        if (spawnSync("which", ["claude"], { stdio: "ignore" }).status !== 0) return { done: true, skipped: true, detail: "Claude Code's CLI isn't on the PATH; skipped" };
+        // Exits 0 when a server named cairn is registered in any scope.
+        if (spawnSync("claude", ["mcp", "get", "cairn"], { stdio: "ignore", timeout: 30_000 }).status === 0) return { done: true, detail: "registered: agents can search your past sessions" };
+        if (options.skipped("mcp")) return { done: true, skipped: true, detail: `skipped (to add it: claude ${mcpAddArgs().join(" ")})` };
+        return { done: false, detail: "not registered" };
+      },
+      async run() {
+        const args = mcpAddArgs();
+        if (!args.includes("mcp")) throw new StepError("Register from the built CLI: npm run build, then node dist/cli.js init.");
+        const ok = answer(await p.confirm({ message: `Let Claude Code search your past sessions, in every project? This runs: claude ${args.join(" ")}` }));
+        if (!ok) {
+          p.log.info("Skipped. cairn init remembers that; the command above adds it later.");
+          return "skipped";
+        }
+        const r = spawnSync("claude", args, { encoding: "utf8" });
+        if (r.status !== 0) throw new StepError(`claude mcp add failed: ${(r.stderr || r.stdout).trim()}`);
+        p.log.success("Registered. New Claude Code sessions get cairn's search, open, brief, refs and related tools.");
+        return "done";
+      },
+    },
+    {
       id: "backfill",
       title: "Backfill",
       async check() {
@@ -275,6 +300,13 @@ function steps(options: { skipped: (id: string) => boolean }): Step[] {
       run: () => watchBackfill(),
     },
   ];
+}
+
+/** `claude mcp add` for this CLI, with Node by a path that survives upgrades. */
+function mcpAddArgs(): string[] {
+  const cli = realpathSync(process.argv[1]!);
+  if (!cli.endsWith(".js")) return [];
+  return ["mcp", "add", "--scope", "user", "cairn", "--", nodePath(), cli, "mcp"];
 }
 
 /**

@@ -30,6 +30,7 @@ const USAGE = `cairn: searchable memory for agent sessions
                                          resumable: re-run it after a crash or Ctrl-C; --check only reports
   cairn key set|remove|status            the Anthropic API key cairn ask uses (kept in the macOS Keychain)
 
+  cairn mcp                              MCP server over stdio, for agents (cairn init registers it)
   cairn live                             watch cairnd work: status and activity as it happens
   cairn service start|stop|status        run cairnd in the background, at every login
   cairn daemon                           run cairnd in the foreground
@@ -322,6 +323,12 @@ async function service(args: string[]) {
   fail(USAGE);
 }
 
+async function mcp() {
+  // Loaded only here, like init: the MCP SDK isn't needed by any other command.
+  const { serveMcp } = await import("./mcp.js");
+  await serveMcp(api);
+}
+
 async function init(args: string[]) {
   const { values } = parseArgs({ args, options: { check: { type: "boolean" } } });
   // Loaded only here: the prompts and the Anthropic SDK would slow every other command's start.
@@ -358,6 +365,7 @@ const [command, ...rest] = process.argv.slice(2);
 const commands: Record<string, (args: string[]) => Promise<void>> = {
   init,
   key,
+  mcp,
   index,
   search: searchCommand,
   open,

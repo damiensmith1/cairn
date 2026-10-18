@@ -11,8 +11,8 @@ clients. Sources are plug-ins per coding agent (Claude Code first).
 Status: build steps 1–2 work on real data: ingest, local embeddings,
 hybrid search, a MiniLM reranker (on by default), pointers
 (`refs`, `related`) and label probes (stored for `brief` and the topic filter; the ranking boost was dropped). cairnd (watcher, socket, launchd),
-`cairn live`, open/brief/ask and `cairn init` (resumable setup, API key in the Keychain) work; no query
-understanding or MCP yet. See the build order in docs/design.md.
+`cairn live`, open/brief/ask, `cairn init` (resumable setup, API key in the Keychain) and `cairn mcp`
+work; query understanding (Laya) is shelved. See the build order in docs/design.md.
 
 ## Commands
 - `npm test`: unit tests on synthetic transcripts (never real sessions)
@@ -22,6 +22,9 @@ understanding or MCP yet. See the build order in docs/design.md.
   `~/.cairn/config.toml` and can write the Keychain: ask before running it on the author's Mac.
   To exercise prompts without touching the machine, use a temp `CAIRN_HOME` and stop before the
   service step (the LaunchAgent label is machine-wide).
+- `node dist/cli.js mcp`: the MCP server over stdio (build first; Claude Code runs the built CLI).
+  Registering it (`claude mcp add`, or init's step) changes the author's Claude Code config: ask
+  first. To try it without registering, spawn it with the SDK's `StdioClientTransport`.
 - `npm run cairn -- key set|remove|status`: the Anthropic key `ask` uses. `status` is read-only;
   `set` and `remove` change the author's Keychain (the item is machine-wide, not under
   `CAIRN_HOME`): ask first.

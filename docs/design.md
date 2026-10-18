@@ -328,6 +328,8 @@ Each links to the full write-up in [[experiments]].
 | **Laya shelved (2026-10-18)**, for performance and RAM/disk cost | The retrieval eval already gives search each question's true intent (a perfect classifier) and it doesn't help: R@5 decision 0.86 → 0.81, open and recall unchanged; refs needs no model (rules 1.00). Laya would add ~450 MB disk and ~0.6 GB RAM (int8), ~0.3 s per query against a 1 s budget, a one-time ~4–5 GB RAM export, an unpublished library to vendor and a model to host. Revisit only if better labels make boosting by true intent move the eval, and a probe on the query embedding falls short ([[experiments]]) |
 | Pointers as a deterministic enricher and link graph | Exact lookups and related sessions for free; GraphRAG-style expansion to test |
 | Intent decides which index leads (`refs` → the pointer graph); no label boost | One query layer serves all five question types |
+| MCP has no `ask` tool (2026-10-18) | The calling agent reasons over passages itself; `ask` would add a second LLM call and API cost |
+| MCP output frames passages as data and masks secrets (2026-10-18) | Old conversations can contain instructions and pasted keys; both stay inert or on the machine |
 | **Label boost dropped from ranking (2026-10-18, author)** | No gain in any test (eval v1, the tuning grid, the ceiling with perfect labels); strong boosting hurts. Labels stay stored for `brief`'s key exchanges and the topic filter. `cairn decisions` and `cairn unresolved` were removed: the boost was all they added |
 | A background service (cairnd) with thin clients (CLI, dashboard, MCP) | Models stay warm (the reranker loads once, not per search); one writer to SQLite; one place holding memory |
 | Sources are plug-ins per coding agent; Claude Code first, Codex next | Harness-agnostic; the core only sees normalised exchanges |
@@ -361,8 +363,10 @@ Each links to the full write-up in [[experiments]].
    (c) built 2026-10-18: `cairn init` (machine, Ollama, reranker,
    sources, API key in the Keychain, service, backfill), resumable, with
    `--check`; `cairn key set|remove|status` manages the key afterwards;
-   fault-tolerant embedding. Projects and MCP registration join init
-   with (d). See [[packaging]].
+   fault-tolerant embedding. Projects join init later. (d) built
+   2026-10-18: `cairn mcp` (search, open, brief, refs, related; no ask)
+   and an init step that registers it with Claude Code after asking. See
+   [[packaging]].
 4. **Retrieval eval:** labelled questions with known answer sessions;
    tune chunking, fusion, boosts, the reranker and link expansion against
    it. Labels drafted by an LLM and checked by a second, blind LLM
@@ -392,6 +396,17 @@ Each links to the full write-up in [[experiments]].
       Worth building only once intent moves the eval (above). **Moot for
       ranking (2026-10-18):** the ceiling test shows intent can't help
       through labels; `refs` routing stays with rules.
+- [ ] **A session finds itself.** Searching through MCP from inside a
+      session returns that session's own earlier exchanges (seen on the
+      first real run: a question about cairn's storage ranked this
+      session's own summary first). The server can't reliably tell which
+      session called it. Options: a `session` parameter the agent can
+      pass to exclude, or down-weighting the most recent minutes.
+- [x] **cairnd's LaunchAgent ran Node by its versioned Homebrew path**
+      (`/opt/homebrew/Cellar/node/23.9.0/bin/node`), so a `brew upgrade
+      node` would break it until `cairn service start` ran again. Fixed
+      2026-10-18: the service and the MCP registration use Node's PATH
+      location (`/opt/homebrew/bin/node`) when it's the same binary.
 - [ ] **Fine-tune the reranker on this kind of data** (deferred
       2026-10-18, author: MCP first). The remaining headroom is 23 of 146
       questions where MiniLM reads the answer and still ranks something
