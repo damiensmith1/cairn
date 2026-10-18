@@ -10,6 +10,71 @@ Spikes run to settle [[design]] questions with data. Newest first. Raw
 data (conversation excerpts, labels, scores) stays outside the repo in
 `~/.cairn/spikes/`, since it's the author's own conversations.
 
+## 2026-10-18 · MiniLM reranker in Node (ONNX, CPU): passes
+
+**Question:** the decided reranker, MiniLM-L6 (`Xenova/ms-marco-MiniLM-L-6-v2`)
+via ONNX Runtime in Node, has to stay well under the one-second search
+target (aim ≲ 0.3 s). How fast is it on the M2's CPU, and does int8 or a
+shorter input cost quality?
+
+**Setup.** `@huggingface/transformers` v4 in Node, CPU, top 10 production
+candidates (pool 50, score order), all 146 checked questions, first query
+excluded as warm-up. Nothing else loaded. Quality scored without the
+baseline row (`CAIRN_EVAL_NO_BASELINE=1`), so no other model was loaded;
+the baseline is from the tuning grid.
+
+| MiniLM in Node, top 10 | p50 | p95 | tune R@1 | tune MRR | test R@1 | test R@5 | test MRR |
+|---|---|---|---|---|---|---|---|
+| Current search (no reranker) | — | — | 0.62 | 0.72 | 0.58 | 0.87 | 0.71 |
+| fp32, 512 tokens | 1.05 s | 1.33 s | 0.63 | 0.76 | 0.70 | 0.90 | 0.79 |
+| int8, 512 tokens | 0.44 s | 0.61 s | 0.66 | 0.78 | 0.72 | 0.90 | 0.79 |
+| **int8, 512 tokens, 4 threads** | **0.32 s** | **0.44 s** | **0.66** | **0.78** | **0.72** | **0.90** | **0.79** |
+| int8, 256 tokens | 0.17 s | 0.22 s | 0.63 | 0.76 | 0.68 | 0.90 | 0.77 |
+| int8, 256 tokens, 4 threads | 0.17 s | 0.21 s | — | — | — | — | — |
+
+The PyTorch run of the same model (Apple GPU) scored exactly the fp32 row.
+
+**Findings**
+- **It passes.** int8, 512 tokens, 4 intra-op threads: 0.32 s typical,
+  0.44 s slow, the same quality as full precision (MRR 0.78 tune, 0.79
+  test, against 0.72 / 0.71 without a reranker). A whole search
+  (embedding ~20 ms, keyword, vector, rerank) stays well under a second.
+- **The ONNX port is faithful**: fp32 in Node ranks exactly as PyTorch.
+- **int8 costs nothing measurable** here and is 2.4× faster than fp32.
+- **Thread count matters at 512 tokens** (0.44 → 0.32 s with 4 threads),
+  not at 256.
+- **256 tokens halves latency again** (0.17 s) for −0.02 MRR on both
+  halves: a possible "fast mode".
+- Memory: the whole Node test process peaked at ~680 MB (Node, the
+  library, ONNX Runtime and the model); the model itself is ~23 MB.
+
+## 2026-10-18 · Reranker from TypeScript (ONNX via transformers.js): partial
+
+**Question:** cairn is TypeScript; does bge-reranker-base keep its ~0.6 s
+when run in Node through ONNX Runtime (`@huggingface/transformers` v4,
+`Xenova/bge-reranker-base`) instead of PyTorch on the Apple GPU?
+
+**Measured** (top 10 candidates, 512 tokens, 20 queries after a warm-up):
+
+| Backend | Load | p50 per query | p95 |
+|---|---|---|---|
+| ONNX, CPU, int8 (q8) | 9.6 s | 1.31 s | 1.48 s |
+| ONNX, CPU, fp32 | 28.9 s | 3.65 s | 3.90 s |
+| PyTorch, Apple GPU (Python, from the grid) | — | 0.56–0.70 s | 0.80 s |
+
+**Findings so far**
+- **On the CPU, ONNX misses the bar**: 1.3 s even quantised, about 2×
+  the GPU run. The GPU is what made 0.6 s possible.
+- **The next attempt, ONNX on CoreML (Apple's accelerator), crashed the
+  machine** (out of memory on 8 GB, with other models resident). Not
+  measured. MiniLM in ONNX wasn't measured either.
+- Options left: a Python sidecar on the Apple GPU (the measured 0.6 s);
+  MiniLM in ONNX on CPU (likely fast enough, weaker); CoreML retried
+  alone, with nothing else loaded.
+- **Direction (author, 2026-10-18): MiniLM via ONNX in Node**, for a
+  Node-only install and a small memory footprint, at ~0.02 test MRR below
+  bge-reranker-base. Its Node latency is the next measurement.
+
 ## 2026-10-18 · Fast reranker: under a second
 
 **Question:** the first reranker (bge-reranker-v2-m3 over the top 30)

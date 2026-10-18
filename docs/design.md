@@ -313,7 +313,8 @@ Each links to the full write-up in [[experiments]].
 | Intent decides which index leads and which label boosts | One query layer serves all five question types |
 | A background service (cairnd) with thin clients (CLI, dashboard, MCP) | Models stay warm (Laya loads in seconds); one writer to SQLite; one place holding memory |
 | Sources are plug-ins per coding agent; Claude Code first, Codex next | Harness-agnostic; the core only sees normalised exchanges |
-| TypeScript service and clients; Laya as a managed Python sidecar, optional at setup | Author's stack and the MCP SDK; Laya is ~2.2 GB and only helps free-text intent |
+| **Node everywhere by default (2026-10-18):** reranker = MiniLM-L6 via ONNX in Node; Laya via `laya-ts` (ONNX in Node) if it passes its measurement, otherwise an optional Python sidecar for CLI free-text intent only | Install is Node + Ollama; ~1 GB less memory than the Python GPU route on an 8 GB machine; one runtime to build, test and ship; the Python route's edge is Mac-GPU-specific and worth ~0.02 MRR |
+| The Python GPU reranker (bge-reranker-base) is at most a later opt-in "quality mode" | +0.02 test MRR doesn't justify Python, a second process and ~1 GB as the default |
 | Laya loaded lazily and unloaded when idle | 8 GB machine; MCP queries rarely need it |
 | Distributed via npm and the author's Homebrew tap | Same path as Clance; brew pulls in Node, Ollama and uv |
 | Reranker and link expansion optional, kept only if the eval shows a gain | Each adds latency; earn it with data |
@@ -396,17 +397,33 @@ Each links to the full write-up in [[experiments]].
       lifts test MRR 0.71 → 0.84 but takes ~5 s per query on the M2.
       **The author's call (2026-10-17): 5 s is too long; reranked search
       must meet the same under-a-second target as search.**
-      **Fast-reranker result (2026-10-18): bge-reranker-base over the top
-      10, 512 tokens, ~0.6 s, test MRR 0.81** (MiniLM 0.08 s, 0.79).
-      Candidate for adoption; still open: confirm on real queries, run it
-      from TypeScript (sidecar or ONNX; an ONNX export of bge-reranker-base
-      exists) and re-measure latency there, and memory alongside Qwen3.
-      Next: smaller models (bge-reranker-base, Qwen3-Reranker-0.6B,
-      MiniLM) and fewer candidates (10–15) to trade a little quality for
-      speed; then how it runs from TypeScript (a Python sidecar like
-      Laya's, or ONNX via transformers.js), and whether it's on by default
-      (MCP, where a few seconds is fine) or a `--rerank` flag (CLI).
+      **Fast-reranker result (2026-10-18):** over the top 10 at 512 tokens,
+      bge-reranker-base reaches test MRR 0.81 at ~0.6 s and MiniLM-L6 0.79
+      at 0.08 s, both measured with PyTorch on the Apple GPU. In Node via
+      ONNX on the CPU, bge-reranker-base takes 1.3 s (int8), over the bar
+      ([[experiments]]).
+      **Decided (author, 2026-10-18): MiniLM-L6 via ONNX in Node**, as
+      part of "Node everywhere" (see Decisions), provided its Node latency
+      is ≲ 0.3 s. **Measured: passes** at int8, 512 tokens, 4 threads:
+      0.32 s p50, 0.44 s p95, test MRR 0.79 (tune 0.78), the same as full
+      precision; 256 tokens gives 0.17 s for −0.02 MRR ([[experiments]]). Node
+      only, no Python; ~23 MB int8 and ~100–200 MB in memory, against ~1 GB
+      for bge-reranker-base; it gives up ~0.02 test MRR (0.79 vs. 0.81;
+      0.04 on tune, ~3 of 60 more answered first for bge). bge-reranker-base
+      would need the Apple GPU through a Python sidecar to meet the bar, so
+      it stays a possible opt-in "quality mode". Open: MiniLM's latency in
+      Node on the CPU (unmeasured); run it in a `worker_thread` inside
+      cairnd so inference never stalls the service (ONNX Runtime uses its
+      own native thread pool; whether a run blocks Node's event loop
+      depends on the binding version); on by default or a flag; confirm on
+      real queries.
 - [x] **Language/runtime:** TypeScript on Node 22+ for the service, CLI,
       dashboard and MCP; label probes evaluated in TypeScript from saved
       weights; Laya as a Python sidecar (`laya-serve`). Decided 2026-10-16
       ([[packaging]]).
+      **Revised 2026-10-18: Node everywhere by default.** Laya moves to
+      `laya-ts` (ONNX in Node) if it passes: CPU latency ≲ 0.5 s per
+      question and the same answers as the Python package on the query
+      intent set. If it fails, Laya stays an optional Python sidecar,
+      used only for free-text intent in the CLI; MCP clients never need
+      it.

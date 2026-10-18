@@ -98,9 +98,17 @@ which sources it reads.
 - **Ollama** over HTTP for Qwen3-Embedding.
 - **Label probes** are a small file of weights per label, evaluated in
   TypeScript; trained offline (scikit-learn in the spikes).
-- **Laya** runs as a Python sidecar (`laya-serve`, Jev-compatible HTTP)
-  in its own `uv` environment under `~/.cairn/`, started by cairnd when
-  needed. (ONNX inside Node is a possible alternative; unverified.)
+- **Node everywhere by default (decided 2026-10-18):** a user installs
+  Node and Ollama, nothing else.
+- **Reranker:** MiniLM-L6 via ONNX Runtime in Node, in a worker thread;
+  see the reranker question in [[design]].
+- **Laya:** the official `laya-ts` (ONNX in Node, vendored; model exported
+  once by us and downloaded at setup), if it passes its measurement (CPU
+  ≲ 0.5 s per question, same answers as Python). Fallback: a Python
+  sidecar (`laya-serve` in a `uv` environment under `~/.cairn/`), optional
+  at setup and used only for free-text intent in the CLI.
+- **Python GPU reranker:** not in the default install; at most a later
+  opt-in quality mode.
 
 ## Memory on an 8 GB machine
 
@@ -118,7 +126,8 @@ Qwen3 uses ~1.5 GB while embedding; Laya ~0.6–1.8 GB when loaded.
 2. **Ollama:** detect it; offer to install it if missing; pull
    `qwen3-embedding:0.6b` (~640 MB).
 3. **Query understanding (optional):** "Install Laya for free-text
-   questions (~2.2 GB)?" Explains the trade-off: without it, free-text
+   questions?" (size depends on the runtime: ONNX in Node if `laya-ts`
+   passes, else a ~2.2 GB Python sidecar) Explains the trade-off: without it, free-text
    questions in the CLI fall back to rules and plain similarity.
 4. **Sources:** detect installed agents (Claude Code, Codex, …) and let
    you pick which to watch.
@@ -186,7 +195,20 @@ A terminal UI built with Ink (React for terminals):
 - [ ] **Codex log format:** location, schema, and how sessions and turns
       map to exchanges.
 - [ ] **Laya in Node via ONNX** instead of a Python sidecar: would remove
-      Python from the install if it works and matches accuracy.
+      Python from the install. Checked 2026-10-18: the official repo has
+      **`laya-ts`**, TypeScript inference on Node (and the browser) through
+      ONNX Runtime, porting `Agent.predict`, `Router` and the question
+      types. Catches: (1) it's not on npm (version 0.1.0, in the repo
+      only), so cairn would vendor it (Apache 2.0); (2) it needs the model
+      split into `encoder.onnx` + `head.onnx`, which the official Hugging
+      Face repo doesn't host: they come from a one-time Python export
+      (`laya-ts/scripts/export_onnx.py`). That's a build-time step for
+      cairn's developer, not the user; the exported files could be hosted
+      for download (Apache 2.0). A third-party `tozp/laya-onnx` has
+      single-file exports (including int8) in a different layout,
+      unofficial; (3) speed and memory on the CPU are unmeasured
+      (ModernBERT-large, ~400M parameters; one pass per question, not per
+      candidate).
 - [ ] **Linux support:** a systemd user unit instead of launchd.
 - [ ] **What `ask()` uses for answers** in the CLI: which LLM API, and
       the user's key.

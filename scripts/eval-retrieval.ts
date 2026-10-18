@@ -255,7 +255,8 @@ async function scoreRerank(tags: string[]) {
   const input = new Map((jsonl(join(dir, "rerank_input.jsonl")) as { id: string; candidates: { seq: number }[] }[]).map((r) => [r.id, r]));
   const hybridOrder = (id: string) => input.get(id)?.candidates.map((c) => c.seq) ?? [];
   // The baseline is exactly what search returns today (grouped by session, as the eval always scored it).
-  const configs: Config[] = [hybrid("hybrid (production)")];
+  // It embeds every question; CAIRN_EVAL_NO_BASELINE skips it, so scoring loads no model.
+  const configs: Config[] = process.env.CAIRN_EVAL_NO_BASELINE ? [] : [hybrid("hybrid (production)")];
   for (const tag of tags) {
     const output = new Map((jsonl(join(dir, `rerank_output_${tag}.jsonl`)) as { id: string; order: number[] }[]).map((r) => [r.id, r.order]));
     configs.push({
