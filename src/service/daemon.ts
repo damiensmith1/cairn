@@ -32,6 +32,7 @@ export async function startDaemon(core: Core, options: DaemonOptions): Promise<D
 
   const queue = new Coalescer(async () => {
     core.daemon!.indexing = true;
+    const started = Date.now();
     try {
       const result = await core.index({}, (progress) => {
         core.daemon!.progress = progress;
@@ -40,7 +41,7 @@ export async function startDaemon(core: Core, options: DaemonOptions): Promise<D
       core.daemon!.lastIndex = { at: new Date().toISOString(), result };
       delete core.daemon!.lastError;
       if (result.appended || result.embedded || result.labelled) {
-        log(`indexed: ${result.appended} new exchanges, ${result.embedded} embedded, ${result.labelled} labelled`);
+        log(`indexed in ${Date.now() - started} ms: ${result.appended} new exchanges, ${result.embedded} embedded, ${result.labelled} labelled`);
       }
       if (result.embedError) log(`embedding skipped: ${result.embedError}`);
       return result;

@@ -234,7 +234,9 @@ A terminal UI built with Ink (React for terminals):
       (ModernBERT-large, ~400M parameters; one pass per question, not per
       candidate).
 - [ ] **Linux support:** a systemd user unit instead of launchd.
-- [ ] **What `ask()` uses for answers** in the CLI: which LLM API, and
-      the user's key.
+- [x] **What `ask()` uses for answers:** the Anthropic API with the
+      user's key (`ANTHROPIC_API_KEY`), model **Claude Haiku 5.5**: cheap
+      and fast, enough to answer from retrieved passages. Decided by the
+      author, 2026-10-18.
 - [ ] **Upgrades:** re-embedding when the embedding model changes (the
       store is the source of truth; `rebuild` covers it).

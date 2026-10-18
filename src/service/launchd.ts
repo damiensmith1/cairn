@@ -65,21 +65,37 @@ export function isLoaded(): boolean {
   return spawnSync("launchctl", ["print", `${domain()}/${LABEL}`], { stdio: "ignore" }).status === 0;
 }
 
+/** Stops the service and waits until launchd has let go of it: bootout returns before that. */
+async function bootout() {
+  if (!isLoaded()) return;
+  spawnSync("launchctl", ["bootout", `${domain()}/${LABEL}`], { stdio: "ignore" });
+  for (let i = 0; i < 40 && isLoaded(); i++) await new Promise((r) => setTimeout(r, 250));
+}
+
 /** Writes the LaunchAgent and starts it (replacing an older one). */
-export function install(logFile: string): string {
+export async function install(logFile: string): Promise<string> {
   const env: Record<string, string> = { PATH: process.env.PATH ?? "/usr/bin:/bin" };
   for (const k of PASSED_ENV) if (process.env[k]) env[k] = process.env[k]!;
   const file = plistPath();
   mkdirSync(dirname(file), { recursive: true });
   mkdirSync(dirname(logFile), { recursive: true, mode: 0o700 });
   writeFileSync(file, plist({ program: daemonCommand(), env, logFile }));
-  if (isLoaded()) spawnSync("launchctl", ["bootout", `${domain()}/${LABEL}`], { stdio: "ignore" });
-  execFileSync("launchctl", ["bootstrap", domain(), file]);
-  return file;
+  await bootout();
+  // launchd can still be releasing the old instance for a moment after bootout ("Bootstrap
+  // failed: 5"), so retry briefly.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      execFileSync("launchctl", ["bootstrap", domain(), file], { stdio: "pipe" });
+      return file;
+    } catch (e) {
+      if (attempt >= 8) throw new Error(`launchctl couldn't start cairnd: ${String((e as { stderr?: Buffer }).stderr ?? e).trim()}`);
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
 }
 
 /** Stops cairnd and removes the LaunchAgent, so it won't start at login. */
-export function uninstall() {
-  if (isLoaded()) spawnSync("launchctl", ["bootout", `${domain()}/${LABEL}`], { stdio: "ignore" });
+export async function uninstall() {
+  await bootout();
   rmSync(plistPath(), { force: true });
 }

@@ -206,20 +206,26 @@ async function daemon() {
 async function service(args: string[]) {
   const sub = args[0];
   if (sub === "start") {
-    const file = install(logFile());
-    for (let i = 0; i < 20; i++) {
-      const c = await connect(socketPath(), 250);
+    let file: string;
+    try {
+      file = await install(logFile());
+    } catch (e) {
+      return fail(e instanceof Error ? e.message : String(e));
+    }
+    // The first catch-up after an install can keep cairnd busy for a while.
+    for (let i = 0; i < 60; i++) {
+      const c = await connect(socketPath(), 1000);
       if (c) {
         c.close();
         console.log(`cairnd is running, and will start at every login.\n${dim(`${file}\nlogs: ${logFile()}`)}`);
         return;
       }
-      await new Promise((r) => setTimeout(r, 250));
+      await new Promise((r) => setTimeout(r, 500));
     }
     return fail(`cairnd was installed but isn't answering yet; see ${logFile()}`);
   }
   if (sub === "stop") {
-    uninstall();
+    await uninstall();
     return console.log("cairnd stopped and won't start at login. `cairn service start` brings it back.");
   }
   if (sub === "status") {

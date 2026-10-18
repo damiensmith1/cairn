@@ -23,6 +23,8 @@ export async function ingest(store: Store, sources: Source[], now = Date.now()):
   for (const source of sources) {
     for (const location of await source.locations()) {
       result.files++;
+      // Let a server in the same process (cairnd) answer between files.
+      await new Promise((resolve) => setImmediate(resolve));
       let info;
       try {
         info = await stat(location);
