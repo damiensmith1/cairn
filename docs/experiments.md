@@ -10,6 +10,49 @@ Spikes run to settle [[design]] questions with data. Newest first. Raw
 data (conversation excerpts, labels, scores) stays outside the repo in
 `~/.cairn/spikes/`, since it's the author's own conversations.
 
+## 2026-10-18 · Laya for query intent: shelved before the export
+
+**Question:** Is Laya in Node (`laya-ts`, ONNX) worth adding for
+free-text intent in the CLI, as planned in build step (e)?
+
+**What intent can buy, measured.** The retrieval eval already passes
+each question's true intent to search, which is what a perfect
+classifier would do. Intent changes ranking only through the label
+boost, and that gives no gain (from the retrieval eval v1 below):
+
+| Intent (n) | R@5 without boost | R@5 boosted by true intent |
+|---|---|---|
+| decision (37) | 0.86 | 0.81 |
+| open (16) | 0.88 | 0.88 |
+| recall (93) | 0.89 | 0.89 |
+
+The decision drop is 2 questions: noise, not a loss. `refs` needs no
+model (rules 1.00 in the query-understanding spike). So Laya's best case
+improves nothing today; the bottleneck is label quality (decision AUC
+0.71), not intent.
+
+**What it would cost.** ModernBERT-large, ~420M weights; the checkpoint
+is 842 MB at 16-bit. Estimated from the weight count (not measured):
+
+| Form | Disk | RAM while loaded |
+|---|---|---|
+| int8 ONNX | ~450 MB | ~0.6 GB |
+| fp32 ONNX | ~1.7 GB | ~1.8 GB |
+
+Plus: a one-time export peaking at ~4–5 GB RAM (fp32 model, the ONNX
+being built and the verification copy in memory together; ~45% of the
+8 GB was free at the time); ~0.3 s per query (Python measured 340 ms on
+the M2) on top of the reranker's 0.4–0.6 s, inside a 1 s search budget;
+vendoring `laya-ts` 0.1.0 (not on npm); hosting the exported model. For
+scale, cairn measured the same day: ~1.4 GB disk and ~60 MB RAM idle
+(~1 GB more while Ollama embeds).
+
+**Decision (author, 2026-10-18):** shelve Laya for performance (no
+measurable gain, added latency) and RAM/disk cost. Revisit only if
+(1) better labels make boosting by true intent move the eval, and
+(2) a probe on the query embedding, free since search computes that
+vector anyway, falls short.
+
 ## 2026-10-18 · cairnd: first run, and why not background priority
 
 **Setup.** cairnd run in the foreground on the real store (built CLI),

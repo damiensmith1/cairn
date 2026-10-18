@@ -64,8 +64,7 @@ See [[background]] for why, and [[design]] for how.
     `open`, `brief`, `refs`) usable from any MCP-capable agent. Both are
     thin clients of a background service ([[packaging]]).
 12. **Guided setup.** A first run that checks the machine, installs or
-    detects Ollama, pulls the embedding model, optionally installs Laya,
-    picks sources and projects, starts the service, backfills, and
+    detects Ollama, pulls the embedding model, picks sources and projects, starts the service, backfills, and
     registers the MCP server.
 
 ## Non-functional

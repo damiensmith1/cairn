@@ -142,11 +142,14 @@ Every question goes through five steps:
   intent and filters itself; cairn skips this step.
 - In the CLI and Clance, cairn does it: rules for structural intents
   (file paths, SHAs, PR numbers → `refs`) and exact project aliases;
-  **Laya** for paraphrased intents ("what'd we land on", "anything left
-  hanging"), where it scored 0.75 against rules' 0.38; embedding
-  similarity to project descriptions for misheard names ("prompt tuna"),
-  with a cut-off so it can answer "none". Candidate design from
-  [[experiments]]; to be confirmed on fresh queries.
+  embedding similarity to project descriptions for misheard names
+  ("prompt tuna"), with a cut-off so it can answer "none". Paraphrased
+  intents ("what'd we land on", "anything left hanging") are where rules
+  are weak (0.38); **Laya** scored 0.75 there but is **shelved
+  (2026-10-18)**: even perfect intent doesn't improve retrieval yet, and
+  it costs disk, RAM and latency (Decisions). Next candidate: a probe on
+  the query's own embedding. The CLI's explicit commands (`decisions`,
+  `unresolved`) cover the rest.
 
 **2. Retrieve.** Keyword hits (FTS5) and vector hits (nearest neighbours)
 in parallel, filtered by project and date when known. For `refs`, the
@@ -225,7 +228,7 @@ All local, on an M2 with 8 GB RAM.
 |---|---|---|
 | Embeddings (search) | Qwen3-Embedding-0.6B via Ollama | Best open model at its size; ~640 MB; ~1.4k tokens/s here |
 | Labels: decision, unresolved, topic | Embedding probe: logistic regression on the Qwen3 vectors | Beat Laya on all three; ~1 ms on top of the embedding; no second model |
-| Query intent (CLI, Clance) | Laya + rules | Laya wins on paraphrased intents; rules win on structural ones |
+| Query intent (CLI, Clance) | Rules; Laya shelved (2026-10-18) | Perfect intent doesn't move the retrieval eval yet; Laya would add ~450 MB disk, ~0.6 GB RAM and ~0.3 s per query |
 | Reranker (optional) | Qwen3-Reranker-0.6B or a bge-reranker | Only if the eval shows a gain |
 | Answers in `ask()` | An LLM via API | The one place text leaves the machine |
 
@@ -320,14 +323,15 @@ Each links to the full write-up in [[experiments]].
 | Split long exchanges on purpose, with overlap | Smaller chunks match more precisely; one vector for a long exchange blurs its topics |
 | v1 labels: decision, unresolved, topic; preference later | Map to "what did we decide", "what's still open", and filtering |
 | Laya zero-shot rejected as the exchange labeller | Lost to the embedding probe on all three labels |
-| Laya for query intent in the CLI and Clance, with rules (confirmed 2026-10-16) | Its strength is paraphrased intents, with options set per request; without it, paraphrases fall back to plain similarity |
+| Laya for query intent in the CLI and Clance, with rules (confirmed 2026-10-16; **shelved 2026-10-18**, next row) | Its strength is paraphrased intents, with options set per request; without it, paraphrases fall back to plain similarity |
+| **Laya shelved (2026-10-18)**, for performance and RAM/disk cost | The retrieval eval already gives search each question's true intent (a perfect classifier) and it doesn't help: R@5 decision 0.86 → 0.81, open and recall unchanged; refs needs no model (rules 1.00). Laya would add ~450 MB disk and ~0.6 GB RAM (int8), ~0.3 s per query against a 1 s budget, a one-time ~4–5 GB RAM export, an unpublished library to vendor and a model to host. Revisit only if better labels make boosting by true intent move the eval, and a probe on the query embedding falls short ([[experiments]]) |
 | Pointers as a deterministic enricher and link graph | Exact lookups and related sessions for free; GraphRAG-style expansion to test |
 | Intent decides which index leads and which label boosts | One query layer serves all five question types |
-| A background service (cairnd) with thin clients (CLI, dashboard, MCP) | Models stay warm (Laya loads in seconds); one writer to SQLite; one place holding memory |
+| A background service (cairnd) with thin clients (CLI, dashboard, MCP) | Models stay warm (the reranker loads once, not per search); one writer to SQLite; one place holding memory |
 | Sources are plug-ins per coding agent; Claude Code first, Codex next | Harness-agnostic; the core only sees normalised exchanges |
-| **Node everywhere by default (2026-10-18):** reranker = MiniLM-L6 via ONNX in Node; Laya via `laya-ts` (ONNX in Node) if it passes its measurement, otherwise an optional Python sidecar for CLI free-text intent only | Install is Node + Ollama; ~1 GB less memory than the Python GPU route on an 8 GB machine; one runtime to build, test and ship; the Python route's edge is Mac-GPU-specific and worth ~0.02 MRR |
+| **Node everywhere by default (2026-10-18):** reranker = MiniLM-L6 via ONNX in Node; Laya via `laya-ts` (ONNX in Node) if it passes its measurement, otherwise an optional Python sidecar for CLI free-text intent only (Laya since shelved) | Install is Node + Ollama; ~1 GB less memory than the Python GPU route on an 8 GB machine; one runtime to build, test and ship; the Python route's edge is Mac-GPU-specific and worth ~0.02 MRR |
 | The Python GPU reranker (bge-reranker-base) is at most a later opt-in "quality mode" | +0.02 test MRR doesn't justify Python, a second process and ~1 GB as the default |
-| Laya loaded lazily and unloaded when idle | 8 GB machine; MCP queries rarely need it |
+| Laya loaded lazily and unloaded when idle (moot while it's shelved) | 8 GB machine; MCP queries rarely need it |
 | Distributed via npm and the author's Homebrew tap | Same path as Clance; brew pulls in Node, Ollama and uv |
 | Reranker and link expansion optional, kept only if the eval shows a gain | Each adds latency; earn it with data |
 | LLM notes only if the retrieval eval says decisions are missed | Decide with data; adds generated text |
@@ -345,6 +349,8 @@ Each links to the full write-up in [[experiments]].
    the watcher, with the CLI as a thin client; (b) **open, brief, ask**;
    (c) **`cairn init`**; then (d) the **MCP server** and (e) **Laya** for
    query understanding. Codex support much later. See [[packaging]].
+   (e) shelved 2026-10-18 (Decisions); before any intent model, better
+   labels, then a probe on the query embedding.
    (a) built 2026-10-18: `cairn daemon`, `cairn service start|stop|status`
    (launchd), JSON-RPC over `~/.cairn/cairnd.sock`, the CLI as a thin
    client with an in-process fallback; `cairn live` shows its status and
@@ -352,8 +358,8 @@ Each links to the full write-up in [[experiments]].
    (c) built 2026-10-18: `cairn init` (machine, Ollama, reranker,
    sources, API key in the Keychain, service, backfill), resumable, with
    `--check`; `cairn key set|remove|status` manages the key afterwards;
-   fault-tolerant embedding. Laya, projects and
-   MCP registration join init with (d) and (e). See [[packaging]].
+   fault-tolerant embedding. Projects and MCP registration join init
+   with (d). See [[packaging]].
 4. **Retrieval eval:** labelled questions with known answer sessions;
    tune chunking, fusion, boosts, the reranker and link expansion against
    it. Labels drafted by an LLM and checked by a second, blind LLM
@@ -366,11 +372,15 @@ Each links to the full write-up in [[experiments]].
       watch the probe's learning curve; (b) fine-tune Laya on the same
       labels on a free GPU (its notebook targets Kaggle T4s) and compare
       with the probe on equal terms; (c) ship v1 without label boosting
-      and add it once a model is good enough.
-- [ ] **Confirm the query-understanding combination** (rules for refs and
-      aliases, Laya for paraphrased intents, embeddings for misheard
-      projects) on a fresh query set, since it was chosen after seeing
-      the first one.
+      and add it once a model is good enough. Since 2026-10-18 this also
+      gates query intent: intent only matters through the boost, and
+      boosting by true intent doesn't help with today's labels.
+- [ ] **Query intent without Laya** (shelved 2026-10-18): rules for refs
+      and aliases, a logistic-regression probe on the query's Qwen3
+      vector (already computed for search, ~1 ms) for paraphrased
+      intents, embeddings for misheard projects. Train on a larger
+      LLM-written, blind-labelled query set; confirm on fresh queries.
+      Worth building only once intent moves the eval (above).
 - [x] **Fork and resume duplicates.** 38 exchanges were copied across 8
       sessions, identical in timestamp and text. Each exchange now has a
       `content_key` (hash of timestamp + user text + reply, without the
@@ -475,4 +485,4 @@ Each links to the full write-up in [[experiments]].
       question and the same answers as the Python package on the query
       intent set. If it fails, Laya stays an optional Python sidecar,
       used only for free-text intent in the CLI; MCP clients never need
-      it.
+      it. **Shelved 2026-10-18** before the export (Decisions).

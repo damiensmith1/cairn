@@ -23,7 +23,7 @@ through MCP.
  sources (plug-ins) │ watcher → store (SQLite) → embed → label → pointers │
   claude-code ─────►│                                                     │
   codex ───────────►│ query server: understand → retrieve → rank → shape  │
-  more later ──────►│ keeps models warm: Ollama (Qwen3), Laya sidecar     │
+  more later ──────►│ keeps models warm: Ollama (Qwen3), MiniLM reranker  │
                     └──────────────────────▲──────────────────────────────┘
                                            │ local socket
                     ┌──────────────────────┼─────────────────────┐
@@ -38,7 +38,7 @@ through MCP.
 - **the store**: it is the only writer to the SQLite file,
 - **the models**, kept warm so queries are fast: Qwen3 embeddings through
   Ollama (which unloads it when idle), the MiniLM reranker (unloaded after
-  ~10 idle minutes), and Laya later,
+  ~10 idle minutes),
 - **the query server**: understand, retrieve, rank, shape.
 
 **The watcher** (decided 2026-10-18): `fs.watch` on each source's folder
@@ -62,7 +62,7 @@ Logs go to `~/.cairn/logs/cairnd.log`.
 - `cairn mcp` (an MCP server over stdio that forwards to cairnd),
 - Clance later, importing the client library.
 
-Why a daemon: Laya takes seconds to load, so a CLI that loaded its own
+Why a daemon: models take time to load, so a CLI that loaded its own
 models would start slowly on every search. One process also means one
 writer to SQLite and one place that holds memory.
 
@@ -118,21 +118,24 @@ which sources it reads.
   Node and Ollama, nothing else.
 - **Reranker:** MiniLM-L6 via ONNX Runtime in Node, in a worker thread;
   see the reranker question in [[design]].
-- **Laya:** the official `laya-ts` (ONNX in Node, vendored; model exported
-  once by us and downloaded at setup), if it passes its measurement (CPU
-  ≲ 0.5 s per question, same answers as Python). Fallback: a Python
-  sidecar (`laya-serve` in a `uv` environment under `~/.cairn/`), optional
-  at setup and used only for free-text intent in the CLI.
+- **Laya:** shelved (2026-10-18) for performance and RAM/disk cost; see
+  [[design]] Decisions. Free-text intent in the CLI uses rules for now.
 - **Python GPU reranker:** not in the default install; at most a later
   opt-in quality mode.
 
 ## Memory on an 8 GB machine
 
-Qwen3 uses ~1.5 GB while embedding; Laya ~0.6–1.8 GB when loaded.
-- Ollama unloads the embedding model after a few idle minutes.
-- cairnd loads Laya lazily on the first free-text query and unloads it
-  after a period without queries.
-- MCP queries usually don't need Laya at all: the agent passes intent.
+Measured 2026-10-18: cairnd idles at ~60 MB; Ollama holds the
+embedding model (~0.9–1 GB) while embedding and unloads it after a few
+idle minutes; the reranker loads into cairnd for searches and unloads
+after ~10 idle minutes. Laya would have added ~0.6 GB while loaded (int8)
+or ~1.8 GB (fp32), one reason it's shelved.
+
+Disk for a working install, measured on the author's Mac: ~1.4 GB
+(embedding model 639 MB, `node_modules` 597 MB, store 91 MB for 3,881
+exchanges, reranker 110 MB). `node_modules` can shrink when packaged:
+`onnxruntime-node` ships every platform's binaries (287 MB) and
+`onnxruntime-web` (140 MB) comes in through transformers.js unused.
 
 ## First run
 
@@ -168,8 +171,9 @@ later):
 7. **Backfill:** cairnd indexes existing history; init shows its progress
    until done, or Enter leaves it running (~50 min for the author's
    history).
-8. Later: **query understanding** (Laya, optional), a **project list**
-   with aliases, and registering **`cairn mcp`** with the detected agents.
+8. Later: a **project list** with aliases, and registering
+   **`cairn mcp`** with the detected agents. (Laya was planned here as an
+   optional step; shelved 2026-10-18.)
 
 **Resumable.** Each step checks the real state first (is the model there,
 is the key stored, did cairnd start after the config changed) and only
@@ -234,7 +238,7 @@ dependency; it can become a panel of the dashboard.
 A terminal UI built with Ink (React for terminals):
 - **Sources:** toggle which agents are watched; last activity per source.
 - **Status:** exchanges indexed, backlog, embedding and label progress,
-  model health (Ollama up, Laya loaded or not), disk used.
+  model health (Ollama up, reranker loaded or not), disk used.
 - **Search:** type a query, browse results grouped by session, open a
   passage or a brief.
 
@@ -245,7 +249,6 @@ A terminal UI built with Ink (React for terminals):
   config.toml      sources, projects and aliases, model choices
   cairn.db         the store and indexes (SQLite)
   models/          label probe weights
-  laya/            uv environment for the Laya sidecar (if installed)
   logs/            cairnd logs
   spikes/          experiment data (not part of the product)
 ```
@@ -272,7 +275,12 @@ A terminal UI built with Ink (React for terminals):
       for very long turns.
 - [ ] **Codex log format:** location, schema, and how sessions and turns
       map to exchanges.
-- [ ] **Laya in Node via ONNX** instead of a Python sidecar: would remove
+- [x] **Laya in Node via ONNX** instead of a Python sidecar. **Shelved
+      2026-10-18** before the export: perfect intent doesn't improve the
+      retrieval eval yet, and int8 Laya costs ~450 MB disk, ~0.6 GB RAM
+      and ~0.3 s per query; the export itself needs ~4–5 GB RAM once
+      (fp32 model, ONNX build and verification in memory together). See
+      [[design]] Decisions and [[experiments]]. What was found: would remove
       Python from the install. Checked 2026-10-18: the official repo has
       **`laya-ts`**, TypeScript inference on Node (and the browser) through
       ONNX Runtime, porting `Agent.predict`, `Router` and the question
