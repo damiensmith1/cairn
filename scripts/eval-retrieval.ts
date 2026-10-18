@@ -14,7 +14,6 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { OllamaEmbedder } from "../src/embed.js";
 import type { Embedder } from "../src/embed.js";
-import { loadLabelModel } from "../src/labels.js";
 import { cairnHome, dbPath } from "../src/paths.js";
 import { OnnxReranker } from "../src/rerank.js";
 import { search, toFtsQuery } from "../src/search.js";
@@ -162,14 +161,9 @@ const byRank = (seqs: number[], k: number) => {
   const xs = new Map(store.exchanges(seqs.slice(0, k)).map((x) => [x.seq, x]));
   return seqs.slice(0, k).map((s) => xs.get(s)!).filter(Boolean);
 };
-const labels = loadLabelModel(join(homedir(), ".cairn", "models", "labels.json"));
 const hybrid = (name: string, opts: SearchOptions = {}, embed: Embedder = embedder): Config => ({
   name,
   run: async (q) => flatten(await search(store, embed, q.question, { limit: 10, ...opts })),
-});
-const boosted = (name: string, opts: SearchOptions = {}): Config => ({
-  name,
-  run: async (q) => flatten(await search(store, embedder, q.question, { limit: 10, intent: q.intent, ...(labels ? { labels } : {}), ...opts })),
 });
 /** Embeds queries without Qwen3's task instruction. */
 const plainQueries: Embedder = { id: embedder.id, dims: embedder.dims, embed: (texts) => embedder.embed(texts, "document") };
@@ -178,7 +172,6 @@ const baseline: Config[] = [
   { name: "keyword only", run: async (q) => byRank(store.keyword(toFtsQuery(q.question), 50).map((m) => m.seq), 10) },
   { name: "vector only", run: async (q) => byRank(store.nearest((await embedder.embed([q.question], "query"))[0]!, 50).map((m) => m.seq), 10) },
   hybrid("hybrid"),
-  boosted("hybrid + label boost"),
 ];
 
 const experiments: Config[] = [
@@ -190,10 +183,6 @@ const experiments: Config[] = [
   hybrid("weights kw 1 : vec 2", { weights: [1, 2] }),
   hybrid("weights kw 2 : vec 1", { weights: [2, 1] }),
   hybrid("no query instruction", {}, plainQueries),
-  boosted("boost multiply 1.0"),
-  boosted("boost multiply 0.3", { boost: 0.3 }),
-  boosted("boost percentile 0.3", { boostMode: "percentile", boost: 0.3 }),
-  boosted("boost confident 1.0", { boostMode: "confident" }),
 ];
 
 function table(results: { name: string; rows: Row[] }[], split: boolean) {

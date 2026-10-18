@@ -198,8 +198,6 @@ cairn                         dashboard
 cairn init                    first-run setup (resumable; --check only reports)
 cairn key set|remove|status   the Anthropic key ask uses (macOS Keychain)
 cairn search <query>          hybrid search, top 10 reranked with MiniLM (--no-rerank to skip)
-cairn decisions <query>       intent: decision (labels boost decisions)
-cairn unresolved <query>      intent: open questions ("open" is the passage-opening operation)
 cairn refs <file|sha|pr|url>  pointer lookup
 cairn related <session>       sessions sharing files, commits and links
 cairn sessions <query>        find a session

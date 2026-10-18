@@ -111,7 +111,6 @@ export class Core implements Api {
       ...(req.project ? { project: req.project } : {}),
       ...(req.since ? { since: req.since } : {}),
       ...(req.topic ? { topic: req.topic } : {}),
-      ...(req.intent ? { intent: req.intent } : {}),
       ...(this.labels ? { labels: this.labels } : {}),
     };
     const labels = Boolean(this.labels);

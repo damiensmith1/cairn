@@ -34,33 +34,26 @@ export function fuse(lists: number[][], k = RRF_K, weights: number[] = []): Map<
   return scores;
 }
 
-/** What the question is after; decides which label boosts. See the query layer in docs/design.md. */
+/**
+ * What a question is after. Ranking is the same for every intent: a label boost was tried and
+ * dropped (docs/experiments.md, the label boost ceiling); `refs` questions go to the pointer graph.
+ */
 export type Intent = "decision" | "open" | "recall" | "find_session" | "refs";
-
-/** How much a label can raise a result: a score is multiplied by up to (1 + LABEL_BOOST). */
-export const LABEL_BOOST = 1;
 
 export interface SearchOptions {
   limit?: number;
   project?: string;
   /** ISO date; only exchanges at or after it. */
   since?: string;
-  intent?: Intent;
   /** Only exchanges whose labelled topic is this. Needs a label model. */
   topic?: string;
-  /** The label model whose stored labels boost and filter; without one, labels are ignored. */
+  /** The label model whose stored labels the topic filter reads; without one, labels are ignored. */
   labels?: LabelModel;
   /** Candidates taken from each of keyword and vector search before fusion. */
   pool?: number;
   /** RRF constant, and the weight of the keyword and vector lists. */
   rrfK?: number;
   weights?: [keyword: number, vector: number];
-  /**
-   * How a label lifts a score: "multiply" by (1 + boost·p); "percentile" by (1 + boost·rank of p
-   * among the candidates, 0–1); "confident" only when p ≥ 0.7.
-   */
-  boostMode?: "multiply" | "percentile" | "confident";
-  boost?: number;
   /** Reorders the top candidates by reading the question with each one. */
   reranker?: Reranker;
   /** How many top candidates the reranker sees (default 10). */
@@ -92,25 +85,7 @@ export async function search(store: Store, embedder: Embedder, query: string, op
   const [vector] = await embedder.embed([query], "query");
   const nearest = store.nearest(vector!, pool);
   const scores = fuse([keyword.map((m) => m.seq), nearest.map((m) => m.seq)], options.rrfK, options.weights);
-  // Labels re-rank: a decision question lifts exchanges likely to hold a decision, an open
-  // question lifts unresolved ones.
-  const labels = options.labels ? store.labels([...scores.keys()], options.labels.version) : new Map();
-  if (options.intent === "decision" || options.intent === "open") {
-    const p = (seq: number) => {
-      const l = labels.get(seq);
-      return l ? (options.intent === "decision" ? l.pDecision : l.pUnresolved) : undefined;
-    };
-    const boost = options.boost ?? LABEL_BOOST;
-    const mode = options.boostMode ?? "multiply";
-    const sorted = [...scores.keys()].map(p).filter((v): v is number => v !== undefined).sort((a, b) => a - b);
-    const rank = (v: number) => (sorted.length > 1 ? sorted.indexOf(v) / (sorted.length - 1) : 0);
-    for (const [seq, score] of scores) {
-      const v = p(seq);
-      if (v === undefined) continue;
-      const lift = mode === "percentile" ? rank(v) : mode === "confident" ? (v >= 0.7 ? v : 0) : v;
-      scores.set(seq, score * (1 + boost * lift));
-    }
-  }
+  const labels = options.labels && options.topic ? store.labels([...scores.keys()], options.labels.version) : new Map();
   const ranked = [...scores.entries()].sort((a, b) => b[1] - a[1]).map(([seq]) => seq);
   const bySeq = new Map(store.exchanges(ranked).map((x) => [x.seq, x]));
 

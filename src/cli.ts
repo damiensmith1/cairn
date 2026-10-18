@@ -5,7 +5,7 @@ import { ask, explainAskError } from "./ask.js";
 import { keyStore } from "./credentials.js";
 import { runLive } from "./live.js";
 import { labelModelPath, logDir, socketPath } from "./paths.js";
-import type { Intent, SessionGroup } from "./search.js";
+import type { SessionGroup } from "./search.js";
 import type { Api } from "./service/api.js";
 import { Core } from "./service/core.js";
 import { startDaemon } from "./service/daemon.js";
@@ -15,8 +15,6 @@ import { AlreadyRunning, connect, RemoteApi } from "./service/rpc.js";
 const USAGE = `cairn: searchable memory for agent sessions
 
   cairn search <query>                   hybrid search, top 10 reranked
-  cairn decisions <query>                search, decisions first
-  cairn unresolved <query>               search, open questions first
      options: --project P  --since YYYY-MM-DD  --topic T  --limit N
               --no-rerank  skip reordering the top 10 with the cross-encoder (faster, worse ranking)
   cairn open <#id> [--around N] [--full] an exchange from the results, with its neighbours
@@ -113,7 +111,7 @@ function print(groups: SessionGroup[]) {
   }
 }
 
-const searchAs = (intent?: Intent) => async (args: string[]) => {
+async function searchCommand(args: string[]) {
   const { values, positionals } = parseArgs({
     args,
     allowPositionals: true,
@@ -134,13 +132,10 @@ const searchAs = (intent?: Intent) => async (args: string[]) => {
       ...(values.project ? { project: values.project } : {}),
       ...(values.since ? { since: values.since } : {}),
       ...(values.topic ? { topic: values.topic } : {}),
-      ...(intent ? { intent } : {}),
       ...(values.limit ? { limit: Number(values.limit) } : {}),
       rerank: !values["no-rerank"],
     });
-    if ((intent === "decision" || intent === "open" || values.topic) && !res.labels) {
-      console.log(dim(`no label model at ${labelModelPath()}: showing plain search`));
-    }
+    if (values.topic && !res.labels) console.log(dim(`no label model at ${labelModelPath()}: topic filter off`));
     if (res.rerankError) console.log(dim(`reranker unavailable (${res.rerankError}); showing unreranked results`));
     print(res.groups);
   } catch (e) {
@@ -148,7 +143,7 @@ const searchAs = (intent?: Intent) => async (args: string[]) => {
   } finally {
     a.close();
   }
-};
+}
 
 const when = (iso: string) => iso.slice(0, 16).replace("T", " ");
 const clip = (s: string, max: number) => (s.length > max ? `${s.slice(0, max)}${dim(` … (${s.length - max} more characters, --full)`)}` : s);
@@ -364,9 +359,7 @@ const commands: Record<string, (args: string[]) => Promise<void>> = {
   init,
   key,
   index,
-  search: searchAs(),
-  decisions: searchAs("decision"),
-  unresolved: searchAs("open"),
+  search: searchCommand,
   open,
   brief,
   ask: askCommand,

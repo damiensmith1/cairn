@@ -10,7 +10,7 @@ clients. Sources are plug-ins per coding agent (Claude Code first).
 
 Status: build steps 1–2 work on real data: ingest, local embeddings,
 hybrid search, a MiniLM reranker (on by default), pointers
-(`refs`, `related`) and label probes with boosting (boost not yet tuned). cairnd (watcher, socket, launchd),
+(`refs`, `related`) and label probes (stored for `brief` and the topic filter; the ranking boost was dropped). cairnd (watcher, socket, launchd),
 `cairn live`, open/brief/ask and `cairn init` (resumable setup, API key in the Keychain) work; no query
 understanding or MCP yet. See the build order in docs/design.md.
 
@@ -26,7 +26,7 @@ understanding or MCP yet. See the build order in docs/design.md.
   `set` and `remove` change the author's Keychain (the item is machine-wide, not under
   `CAIRN_HOME`): ask first.
 - `npm run cairn -- index [--no-embed] [--limit N] [--retry-failed]`: read new logs, embed what's new
-- `npm run cairn -- search|decisions|unresolved "<query>" [--project P] [--since DATE] [--topic T] [--no-rerank]` (reranking is on by default)
+- `npm run cairn -- search "<query>" [--project P] [--since DATE] [--topic T] [--no-rerank]` (reranking is on by default)
 - `npm run cairn -- refs <file|sha|#pr|url>` and `npm run cairn -- related <session>`
 - `npm run cairn -- open <#id>`, `brief <session|#id>`, `ask "<question>"` (ask needs an
   Anthropic key: the one `cairn init` or `cairn key set` stored in the Keychain, or ANTHROPIC_API_KEY; it calls

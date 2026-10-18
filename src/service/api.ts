@@ -1,5 +1,5 @@
 import type { EmbedProgress } from "../ingest.js";
-import type { Intent, SessionGroup } from "../search.js";
+import type { SessionGroup } from "../search.js";
 import type { StoreStats } from "../store.js";
 import type { StoredExchange } from "../types.js";
 
@@ -24,7 +24,6 @@ export interface SearchRequest {
   project?: string;
   since?: string;
   topic?: string;
-  intent?: Intent;
   limit?: number;
   /** Rerank the top candidates (default true). */
   rerank?: boolean;
@@ -35,7 +34,7 @@ export interface SearchResponse {
   reranked: boolean;
   /** Why reranking was skipped, when it was asked for and failed. */
   rerankError?: string;
-  /** Whether a label model is loaded (decision/unresolved boosts and topic filters need one). */
+  /** Whether a label model is loaded (the topic filter needs one). */
   labels: boolean;
 }
 

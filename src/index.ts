@@ -15,7 +15,6 @@ export { extractPointers, normalizePath, POINTERS_VERSION, refQuery } from "./po
 export type { Pointer, PointerKind, PointerRelation } from "./pointers.js";
 export { auc, labelPending, loadLabelModel, predict, trainBinary, trainMulticlass } from "./labels.js";
 export type { BinaryProbe, LabelModel, Labels, MulticlassProbe } from "./labels.js";
-export { LABEL_BOOST } from "./search.js";
 export type { Intent } from "./search.js";
 export { OnnxReranker, RERANK_CHARS, RERANK_TOP } from "./rerank.js";
 export type { OnnxRerankerOptions, Reranker } from "./rerank.js";

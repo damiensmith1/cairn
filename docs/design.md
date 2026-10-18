@@ -128,7 +128,7 @@ Every question goes through five steps:
  2. RETRIEVE     keyword search ∪ vector search, filtered to the project
         │        (refs intent: pointer-graph lookup instead)
         ▼
- 3. RANK         merge both lists → boost by labels → optional rerank
+ 3. RANK         merge both lists → rerank the top 10
         ▼
  4. SHAPE        group by session, attach source (project · session · date)
         ▼
@@ -155,10 +155,11 @@ Every question goes through five steps:
 in parallel, filtered by project and date when known. For `refs`, the
 pointer graph answers exactly instead.
 
-**3. Rank.** Merge the two lists (reciprocal rank fusion, proposed), then
-boost by the label that matches the intent. Optional steps, each kept
-only if the retrieval eval shows a gain: a **reranker** that reads query
-and passage together and reorders the top ~50, and **link expansion**
+**3. Rank.** Merge the two lists (reciprocal rank fusion), then a
+**reranker** that reads query and passage together reorders the top 10
+(MiniLM, on by default). A label boost by intent was tried and
+**dropped (2026-10-18)**: no gain in any test, even with perfect labels.
+Optional, kept only if the retrieval eval shows a gain: **link expansion**
 that adds exchanges sharing pointers with the top hits (a light
 GraphRAG).
 
@@ -172,8 +173,8 @@ passages, with citations.
 
 | Intent | Retrieval | Ranking and output |
 |---|---|---|
-| decision | hybrid search | boost high p_decision, newest first |
-| open | hybrid search | keep high p_unresolved, drop anything settled later |
+| decision | hybrid search | best match (the label boost was dropped, 2026-10-18) |
+| open | hybrid search | best match ("drop anything settled later" not built) |
 | recall | hybrid search | best match, plus `open()` for surrounding context |
 | find_session | hybrid search | one result per session, with its `brief` |
 | refs | pointer graph (file / commit / PR) | every mention, in time order |
@@ -326,7 +327,8 @@ Each links to the full write-up in [[experiments]].
 | Laya for query intent in the CLI and Clance, with rules (confirmed 2026-10-16; **shelved 2026-10-18**, next row) | Its strength is paraphrased intents, with options set per request; without it, paraphrases fall back to plain similarity |
 | **Laya shelved (2026-10-18)**, for performance and RAM/disk cost | The retrieval eval already gives search each question's true intent (a perfect classifier) and it doesn't help: R@5 decision 0.86 → 0.81, open and recall unchanged; refs needs no model (rules 1.00). Laya would add ~450 MB disk and ~0.6 GB RAM (int8), ~0.3 s per query against a 1 s budget, a one-time ~4–5 GB RAM export, an unpublished library to vendor and a model to host. Revisit only if better labels make boosting by true intent move the eval, and a probe on the query embedding falls short ([[experiments]]) |
 | Pointers as a deterministic enricher and link graph | Exact lookups and related sessions for free; GraphRAG-style expansion to test |
-| Intent decides which index leads and which label boosts | One query layer serves all five question types. (2026-10-18: the label boost doesn't help even with perfect labels; see the open question on removing it) |
+| Intent decides which index leads (`refs` → the pointer graph); no label boost | One query layer serves all five question types |
+| **Label boost dropped from ranking (2026-10-18, author)** | No gain in any test (eval v1, the tuning grid, the ceiling with perfect labels); strong boosting hurts. Labels stay stored for `brief`'s key exchanges and the topic filter. `cairn decisions` and `cairn unresolved` were removed: the boost was all they added |
 | A background service (cairnd) with thin clients (CLI, dashboard, MCP) | Models stay warm (the reranker loads once, not per search); one writer to SQLite; one place holding memory |
 | Sources are plug-ins per coding agent; Claude Code first, Codex next | Harness-agnostic; the core only sees normalised exchanges |
 | **Node everywhere by default (2026-10-18):** reranker = MiniLM-L6 via ONNX in Node; Laya via `laya-ts` (ONNX in Node) if it passes its measurement, otherwise an optional Python sidecar for CLI free-text intent only (Laya since shelved) | Install is Node + Ollama; ~1 GB less memory than the Python GPU route on an 8 GB machine; one runtime to build, test and ship; the Python route's edge is Mac-GPU-specific and worth ~0.02 MRR |
@@ -344,7 +346,8 @@ Each links to the full write-up in [[experiments]].
 1. **Search:** transcript parser, store, watcher and backfill, keyword +
    vector index, `search` in the CLI. Useful on day one.
 2. **Pointers**, `refs` and related sessions; **labels** (embedding probe)
-   and label boosting. Built 2026-10-17; the boost needs tuning (step 4).
+   and label boosting. Built 2026-10-17; the boost was dropped 2026-10-18
+   (no gain even with perfect labels).
 3. **The rest, in this order (decided 2026-10-18):** (a) **cairnd** and
    the watcher, with the CLI as a thin client; (b) **open, brief, ask**;
    (c) **`cairn init`**; then (d) the **MCP server** and (e) **Laya** for
@@ -389,11 +392,11 @@ Each links to the full write-up in [[experiments]].
       Worth building only once intent moves the eval (above). **Moot for
       ranking (2026-10-18):** the ceiling test shows intent can't help
       through labels; `refs` routing stays with rules.
-- [ ] **Remove the label boost from ranking?** It hasn't helped in any
+- [x] **Remove the label boost from ranking?** It hasn't helped in any
       test (eval v1, the tuning grid, the ceiling with perfect labels),
-      and strong boosting hurts. Without it, `decisions` and `unresolved`
-      rank like `search`. Proposal for the author; labels stay stored for
-      `brief` and topic filters.
+      and strong boosting hurts. **Done 2026-10-18 (author):** removed
+      with the `decisions` and `unresolved` commands; labels stay stored
+      for `brief` and topic filters.
 - [x] **Fork and resume duplicates.** 38 exchanges were copied across 8
       sessions, identical in timestamp and text. Each exchange now has a
       `content_key` (hash of timestamp + user text + reply, without the
@@ -447,6 +450,7 @@ Each links to the full write-up in [[experiments]].
       weak; options include boosting by percentile within the candidates.
       Tune against the retrieval eval, not single queries. Eval v1: the
       boost gives no gain, so it adds nothing until the probes improve.
+      (The label boost was dropped 2026-10-18.)
 - [ ] **A label model for other users.** The probes are trained on the
       author's labelled exchanges and live in `~/.cairn/models/`, not the
       repo. A fresh install has no label model, so labels are off. Ship a

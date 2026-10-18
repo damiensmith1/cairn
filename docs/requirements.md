@@ -41,8 +41,8 @@ See [[background]] for why, and [[design]] for how.
    `preference` (how the author likes things done, across projects) comes later. Each
    enricher's output is its own derived record, keyed by
    `hash(exchange) + enricher version`, and can be dropped and rebuilt.
-5. **`search(query, filters?)`.** Hybrid keyword + vector search, boosted
-   by labels, filterable by project and date, grouped by session. Returns
+5. **`search(query, filters?)`.** Hybrid keyword + vector search,
+   reranked, filterable by project, date and topic, grouped by session. Returns
    verbatim passages with source links.
 6. **`open(source)`.** Return the stretch of a session around a passage,
    to bring into the current session.
@@ -59,7 +59,7 @@ See [[background]] for why, and [[design]] for how.
    about `src/match/jev.ts`"), related sessions, and following links during
    retrieval. Deterministic, no LLM.
 10. **Rebuild.** Any index or enricher can be rebuilt from the store alone.
-11. **Clients.** A CLI with explicit commands per intent and a terminal
+11. **Clients.** A CLI (search, open, brief, ask, refs, related) and a terminal
     dashboard (sources, status, search), and an MCP server (`search`,
     `open`, `brief`, `refs`) usable from any MCP-capable agent. Both are
     thin clients of a background service ([[packaging]]).

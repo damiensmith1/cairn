@@ -98,7 +98,7 @@ describe("enrichment in the store", () => {
     expect(store.relatedSessions("a").map((r) => r.session)).not.toContain("c");
   });
 
-  it("labels embedded exchanges and boosts decisions for a decision question", async () => {
+  it("labels embedded exchanges and filters search by topic", async () => {
     const { store, embedder } = await setup();
     await embedPending(store, embedder);
     // A toy model: "decision" probability rises along one direction of the fake embedding.
@@ -114,10 +114,11 @@ describe("enrichment in the store", () => {
     expect(labelPending(store, model, embedder.id)).toBe(4);
     expect(labelPending(store, model, embedder.id)).toBe(0);
 
-    const plain = (await search(store, embedder, "batching jev")).flatMap((g) => g.hits);
-    const boosted = (await search(store, embedder, "batching jev", { intent: "decision", labels: model })).flatMap((g) => g.hits);
-    const rank = (hits: typeof plain) => hits.findIndex((h) => h.exchange.user === "ok, let's go with batching");
-    expect(rank(boosted)).toBeLessThanOrEqual(rank(plain));
-    expect(rank(boosted)).toBe(0);
+    const all = (await search(store, embedder, "batching jev")).flatMap((g) => g.hits);
+    const topic = store.labels([all[0]!.exchange.seq], model.version).get(all[0]!.exchange.seq)!.topic;
+    const other = model.topic.classes.find((c) => c !== topic)!;
+    const only = async (t: string) => (await search(store, embedder, "batching jev", { labels: model, topic: t })).flatMap((g) => g.hits);
+    expect((await only(topic)).length).toBe(all.length);
+    expect(await only(other)).toHaveLength(0);
   });
 });
