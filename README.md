@@ -77,17 +77,21 @@ cairnd isn't running, the CLI does the work in its own process.
 Needs macOS and Node 22+; `init` installs Ollama if it's missing.
 
 ```bash
-git clone https://github.com/damiensmith1/cairn && cd cairn
-npm install && npm run build
-node dist/cli.js init
+npm install -g @damiensmith1/cairn
+cairn init
 ```
 
 `init` walks through setup and can be re-run at any point: it checks the
-machine, installs and starts Ollama (after asking), pulls the embedding model
-(~640 MB), fetches the reranker (~23 MB), asks which session folders to
-watch, optionally stores an Anthropic key for `ask` in the macOS Keychain,
-installs cairnd, offers to register the MCP server with Claude Code, and
-indexes your existing sessions. `node dist/cli.js init --check` only reports.
+machine, removes the parts of cairn's dependencies it never uses (other
+platforms' binaries, a browser runtime: ~560 MB down to ~120 MB), installs
+and starts Ollama (after asking), pulls the embedding model (~640 MB),
+fetches the reranker (~23 MB), asks which session folders to watch,
+optionally stores an Anthropic key for `ask` in the macOS Keychain, installs
+cairnd, offers to register the MCP server with Claude Code, and indexes your
+existing sessions. `cairn init --check` only reports.
+
+From source: `git clone https://github.com/damiensmith1/cairn`, then
+`npm install && npm run build` and `node dist/cli.js init`.
 
 ## Commands
 
@@ -106,8 +110,6 @@ cairn key set|remove|status   the Anthropic key used by ask
 cairn mcp                     the MCP server, over stdio
 cairn service start|stop|status
 ```
-
-Until it's installed globally, run these as `node dist/cli.js <command>`.
 
 ## What stays on your machine
 
@@ -131,7 +133,8 @@ Measured on an M2 MacBook Air with 8 GB of RAM, over ~3,900 exchanges from
 - On a retrieval eval of 146 questions (written by an LLM from known answers
   and checked blind by another), the reranker lifts test MRR from 0.71 to
   0.79, and the right session is in the top 5 for ~99% of questions.
-- Disk: ~1.4 GB, most of it the embedding model and Node dependencies.
+- Disk: ~120 MB for cairn once `init` has trimmed it, ~640 MB for the
+  embedding model in Ollama, and the store (~90 MB for ~3,900 exchanges).
   RAM: ~60 MB for cairnd when idle, about 1 GB more while Ollama embeds.
 
 ## Docs

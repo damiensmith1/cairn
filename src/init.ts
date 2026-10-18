@@ -1,9 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 import * as p from "@clack/prompts";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statfsSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statfsSync, statSync, writeFileSync } from "node:fs";
 import { homedir, totalmem } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { ASK_MODEL } from "./ask.js";
 import { configPath, expandHome, loadConfig, saveConfig, tildify } from "./config.js";
 import { anthropicKey, keyStore, looksLikeKey } from "./credentials.js";
@@ -96,6 +97,27 @@ function steps(options: { skipped: (id: string) => boolean }): Step[] {
       async run() {
         if (Number(process.versions.node.split(".")[0]) < 22) throw new StepError("cairn needs Node 22 or newer.");
         throw new StepError("cairn needs about 2 GB of free disk for its models and store.");
+      },
+    },
+    {
+      id: "trim",
+      title: "Install size",
+      async check() {
+        if (!pkgDir().split("/").includes("node_modules")) return { done: true, detail: "source checkout, nothing to trim" };
+        return untrimmed()
+          ? { done: false, detail: "unused parts of dependencies (other platforms' binaries, a browser runtime) take ~440 MB" }
+          : { done: true, detail: "unused parts of dependencies removed" };
+      },
+      async run() {
+        const s = p.spinner();
+        s.start("Removing unused parts of cairn's dependencies");
+        const r = spawnSync(process.execPath, [join(pkgDir(), "scripts", "prune.mjs")], { encoding: "utf8" });
+        if (r.status !== 0) {
+          s.error("Couldn't trim the install (cairn works as it is)");
+          return "skipped";
+        }
+        s.stop(r.stdout.trim().replace(/^cairn: /, "") || "Done");
+        return "done";
       },
     },
     {
@@ -300,6 +322,21 @@ function steps(options: { skipped: (id: string) => boolean }): Step[] {
       run: () => watchBackfill(),
     },
   ];
+}
+
+/** Where cairn is installed: dist/ is one level down, wherever the bundle put this module. */
+const pkgDir = () => dirname(dirname(fileURLToPath(import.meta.url)));
+
+/** Whether scripts/prune.mjs still has something to remove (it removes these first). */
+function untrimmed(): boolean {
+  const modules = join(pkgDir(), "node_modules");
+  if (existsSync(join(modules, "onnxruntime-web")) || existsSync(join(modules, "better-sqlite3", "deps"))) return true;
+  try {
+    const bin = join(modules, "onnxruntime-node", "bin");
+    return readdirSync(bin).some((napi) => readdirSync(join(bin, napi)).some((os) => os !== process.platform));
+  } catch {
+    return false;
+  }
 }
 
 /** `claude mcp add` for this CLI, with Node by a path that survives upgrades. */

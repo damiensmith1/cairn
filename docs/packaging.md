@@ -131,11 +131,10 @@ idle minutes; the reranker loads into cairnd for searches and unloads
 after ~10 idle minutes. Laya would have added ~0.6 GB while loaded (int8)
 or ~1.8 GB (fp32), one reason it's shelved.
 
-Disk for a working install, measured on the author's Mac: ~1.4 GB
-(embedding model 639 MB, `node_modules` 597 MB, store 91 MB for 3,881
-exchanges, reranker 110 MB). `node_modules` can shrink when packaged:
-`onnxruntime-node` ships every platform's binaries (287 MB) and
-`onnxruntime-web` (140 MB) comes in through transformers.js unused.
+Disk for a working install, measured on the author's Mac: ~1.4 GB from
+source (embedding model 639 MB, `node_modules` 597 MB, store 91 MB for
+3,881 exchanges, reranker 110 MB). From npm, cairn itself is ~120 MB
+once `init` has trimmed it (see Distribution).
 
 ## First run
 
@@ -323,10 +322,30 @@ A terminal UI built with Ink (React for terminals):
 
 ## Distribution
 
-- **npm:** `@damiensmith1/cairn`, with the `cairn` command, the client
-  library, and `/mcp`.
-- **Homebrew:** a formula in the author's tap (as for Clance) that
-  depends on Node, Ollama and `uv`.
+- **npm (0.1.0, 2026-10-18):** `npm install -g @damiensmith1/cairn`, then
+  `cairn init`. The package is ~150 KB (`dist/` and `scripts/prune.mjs`);
+  `prepublishOnly` runs typecheck, tests and the build, so `npm publish`
+  can't ship a stale `dist/`. The author publishes.
+- **Trimming the install** (`scripts/prune.mjs`, run by init's "Install
+  size" step): npm installs ~560 MB of dependencies, ~440 MB of which cairn
+  never loads. The script removes, from cairn's own nested `node_modules`
+  only: other platforms' binaries (onnxruntime-node, better-sqlite3) and
+  SQLite's C sources; `onnxruntime-web` (transformers.js bundles the
+  runtime it needs into its Node build); transformers.js's non-Node
+  bundles; `sharp`'s native image libraries, leaving a stub at its entry
+  points because transformers.js imports it on load; the MCP SDK's HTTP
+  server stack (cairn serves stdio); packages nothing left depends on;
+  source maps, type declarations and docs. Result: 561 → 119 MB, with
+  identical reranker scores on 146 real queries, CLI search and the MCP
+  server checked on the installed package. **Not a postinstall script:**
+  tried first, and npm runs dependencies' own install scripts after the
+  package's, so deleting protobufjs before its script ran failed the
+  whole install. Init runs after npm is done. Re-run `cairn init` after
+  upgrading.
+- **Homebrew: not now** (decided 2026-10-18). npm alone covers anyone with
+  Node; a formula would install the npm package anyway, and a Homebrew
+  install would put cairn under a versioned Cellar path that cairnd's
+  LaunchAgent and the MCP registration would have to avoid.
 
 ## Open questions
 - [x] **Socket protocol:** JSON-RPC 2.0 over a Unix socket at

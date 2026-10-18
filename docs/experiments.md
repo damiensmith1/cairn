@@ -10,6 +10,36 @@ Spikes run to settle [[design]] questions with data. Newest first. Raw
 data (conversation excerpts, labels, scores) stays outside the repo in
 `~/.cairn/spikes/`, since it's the author's own conversations.
 
+## 2026-10-18 · Trimming the npm install without changing cairn's code
+
+**Question:** a global install of cairn is ~560 MB. How small can it get
+by deleting what it never loads, without rewriting anything (the reranker
+stays on transformers.js)?
+
+**Method.** `npm pack`, then a global install of the tarball into a
+throwaway prefix. After each deletion, four checks on the installed
+package: the reranker scores 146 real eval queries (1,460 pairs) against
+reference scores from the source tree; `cairn search` in a sandbox home
+(hybrid + rerank, 10 hits); the MCP server starts, lists its tools and
+searches; the CLI runs.
+
+| Step | Installed size | Checks |
+|---|---|---|
+| As installed | 561 MB | pass |
+| Other platforms' onnxruntime-node binaries (Windows 133 MB, Linux 68 MB) | 360 MB | pass |
+| `onnxruntime-web` (transformers.js's Node build bundles its own runtime) | 219 MB | pass |
+| `sharp`'s native libraries, a stub at its entry points (imported on load, never called) | 192 MB | pass |
+| better-sqlite3's other platforms and C sources, transformers.js's non-Node bundles, the MCP SDK's HTTP stack, orphaned packages (protobufjs …), maps, type declarations, docs | **119 MB** | pass |
+
+Reranker scores were identical in every step (max difference 0). `ask`
+loads the Anthropic SDK and handles a rejected key; `@opentelemetry/api`
+(a dependency of that SDK) was kept, since `ask` can't be fully tested
+without spending.
+
+**Finding:** as a postinstall script the trim broke installs: npm ran
+protobufjs's own install script after cairn's, in a folder that no longer
+existed, and rolled everything back. It runs from `cairn init` instead.
+
 ## 2026-10-18 · Reranker misses, and free fixes that don't help
 
 **Question:** with the reranker on, the right exchange is in the top 10

@@ -346,7 +346,8 @@ Each links to the full write-up in [[experiments]].
 | **Node everywhere by default (2026-10-18):** reranker = MiniLM-L6 via ONNX in Node; Laya via `laya-ts` (ONNX in Node) if it passes its measurement, otherwise an optional Python sidecar for CLI free-text intent only (Laya since shelved) | Install is Node + Ollama; ~1 GB less memory than the Python GPU route on an 8 GB machine; one runtime to build, test and ship; the Python route's edge is Mac-GPU-specific and worth ~0.02 MRR |
 | The Python GPU reranker (bge-reranker-base) is at most a later opt-in "quality mode" | +0.02 test MRR doesn't justify Python, a second process and ~1 GB as the default |
 | Laya loaded lazily and unloaded when idle (moot while it's shelved) | 8 GB machine; MCP queries rarely need it |
-| Distributed via npm and the author's Homebrew tap | Same path as Clance; brew pulls in Node, Ollama and uv |
+| Distributed via npm; Homebrew not now (2026-10-18) | npm covers anyone with Node; a formula would wrap the npm package anyway and add a versioned install path to work around |
+| Trim the install in `cairn init`, not a postinstall script (2026-10-18) | 561 → 119 MB with identical results; as a postinstall it broke npm, which runs dependencies' install scripts afterwards |
 | Reranker and link expansion optional, kept only if the eval shows a gain | Each adds latency; earn it with data |
 | LLM notes only if the retrieval eval says decisions are missed | Decide with data; adds generated text |
 | `cairn init` is resumable by checking real state per step, not by replaying a log (2026-10-18) | After a crash or Ctrl-C the machine is the truth; a state file only says where the last run stopped |

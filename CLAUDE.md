@@ -50,6 +50,10 @@ work; query understanding (Laya) is shelved. See the build order in docs/design.
   running, else work in process.
 - Data lives in `~/.cairn/` (or `CAIRN_HOME`); tests use a temp dir and an
   in-memory store.
+- Publishing: the author runs `npm publish`; `prepublishOnly` runs typecheck, tests and build.
+  The package ships `dist/` and `scripts/prune.mjs` (run by init's "Install size" step, never as a
+  postinstall: that broke npm installs). After changing dependencies, re-check the trim on a
+  packed tarball installed into a temp prefix (docs/experiments.md, trimming the npm install).
 
 ## Docs
 
