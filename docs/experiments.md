@@ -10,6 +10,56 @@ Spikes run to settle [[design]] questions with data. Newest first. Raw
 data (conversation excerpts, labels, scores) stays outside the repo in
 `~/.cairn/spikes/`, since it's the author's own conversations.
 
+## 2026-10-18 · Label boost ceiling: perfect labels don't help ranking
+
+**Question:** Before improving the label probes (or adding an intent
+model), what's the most a label could do? If search had *perfect*
+decision/unresolved labels and the question's true intent, would
+ranking improve?
+
+**Setup.** The 53 decision and open questions of the retrieval eval.
+Production search (hybrid, then the MiniLM reranker on the top 10);
+the candidates are each question's reranked top 10: 454 distinct
+exchanges. LLM labellers (5 agents, ~91 each) labelled every candidate
+for decision and unresolved using the earlier guidelines, **without
+seeing the questions**, so labels can't encode relevance. A blind second
+labeller re-did every 5th item: decision κ 1.00 (88 items, explanations
+worded independently), unresolved κ 0.77 (84). The label was applied
+**after** the reranker (rerank score + w × label, 1 for yes, 0.5 for
+unsure), since before it a label only changes which candidates reach
+the top 10. The baseline reproduces the eval exactly.
+
+| Config | decision R@1 | decision MRR | open R@1 | open MRR | both R@1 | both MRR |
+|---|---|---|---|---|---|---|
+| Rerank (production) | 0.73 | 0.79 | 0.69 | 0.80 | 0.72 | 0.79 |
+| + perfect label × 0.5–2 | 0.70–0.73 | 0.77–0.79 | 0.69 | 0.81 | 0.70–0.72 | 0.78–0.79 |
+| + perfect label × 4 | 0.68 | 0.75 | 0.69 | 0.81 | 0.68 | 0.77 |
+| Perfect label first | 0.46 | 0.59 | 0.56 | 0.72 | **0.49** | 0.63 |
+| + probe p × 1–4 | 0.70–0.73 | 0.78–0.79 | 0.63–0.69 | 0.77–0.80 | 0.68–0.72 | 0.77–0.79 |
+
+**Why.** The answer exchanges often don't carry the label their
+question asks for: **14 of 34** decision targets are labelled
+decision = yes; 11 of 16 open targets are unresolved = yes. "What did
+we decide about X" is usually answered by the exchange that explains,
+records or applies the decision, not the moment the user said "go
+with B". Lifting labelled exchanges therefore lifts the wrong ones as
+often as the right one.
+
+**Findings**
+- **Labels can't improve ranking, even perfect ones.** So better probes
+  (more labels, new features) won't help search, and neither will an
+  intent model, since intent acts on ranking only through the labels.
+  Both explorations stop here.
+- The decision label is well defined (κ 1.00); it just measures the
+  moment of deciding, which isn't what these questions retrieve.
+- Labels may still earn their keep outside ranking: `brief`'s key
+  exchanges, topic filters.
+- Method: testing the ceiling (perfect inputs) first cost one labelling
+  pass, instead of building better labels and an intent model to find
+  the same answer.
+
+Data: `~/.cairn/spikes/ceiling/` (`ceiling.mts dump|score`).
+
 ## 2026-10-18 · Laya for query intent: shelved before the export
 
 **Question:** Is Laya in Node (`laya-ts`, ONNX) worth adding for

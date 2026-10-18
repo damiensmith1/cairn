@@ -326,7 +326,7 @@ Each links to the full write-up in [[experiments]].
 | Laya for query intent in the CLI and Clance, with rules (confirmed 2026-10-16; **shelved 2026-10-18**, next row) | Its strength is paraphrased intents, with options set per request; without it, paraphrases fall back to plain similarity |
 | **Laya shelved (2026-10-18)**, for performance and RAM/disk cost | The retrieval eval already gives search each question's true intent (a perfect classifier) and it doesn't help: R@5 decision 0.86 → 0.81, open and recall unchanged; refs needs no model (rules 1.00). Laya would add ~450 MB disk and ~0.6 GB RAM (int8), ~0.3 s per query against a 1 s budget, a one-time ~4–5 GB RAM export, an unpublished library to vendor and a model to host. Revisit only if better labels make boosting by true intent move the eval, and a probe on the query embedding falls short ([[experiments]]) |
 | Pointers as a deterministic enricher and link graph | Exact lookups and related sessions for free; GraphRAG-style expansion to test |
-| Intent decides which index leads and which label boosts | One query layer serves all five question types |
+| Intent decides which index leads and which label boosts | One query layer serves all five question types. (2026-10-18: the label boost doesn't help even with perfect labels; see the open question on removing it) |
 | A background service (cairnd) with thin clients (CLI, dashboard, MCP) | Models stay warm (the reranker loads once, not per search); one writer to SQLite; one place holding memory |
 | Sources are plug-ins per coding agent; Claude Code first, Codex next | Harness-agnostic; the core only sees normalised exchanges |
 | **Node everywhere by default (2026-10-18):** reranker = MiniLM-L6 via ONNX in Node; Laya via `laya-ts` (ONNX in Node) if it passes its measurement, otherwise an optional Python sidecar for CLI free-text intent only (Laya since shelved) | Install is Node + Ollama; ~1 GB less memory than the Python GPU route on an 8 GB machine; one runtime to build, test and ship; the Python route's edge is Mac-GPU-specific and worth ~0.02 MRR |
@@ -375,12 +375,25 @@ Each links to the full write-up in [[experiments]].
       and add it once a model is good enough. Since 2026-10-18 this also
       gates query intent: intent only matters through the boost, and
       boosting by true intent doesn't help with today's labels.
+      **For ranking, moot (2026-10-18):** near-perfect labels (LLM,
+      blind-checked) don't improve the reranked ranking either, and
+      ranking them first drops R@1 from 0.72 to 0.49: answers to "what did
+      we decide" are often the exchange that explains the decision, not
+      the one where it was made ([[experiments]]). Label quality now
+      matters only for `brief`'s key exchanges and the topic filter.
 - [ ] **Query intent without Laya** (shelved 2026-10-18): rules for refs
       and aliases, a logistic-regression probe on the query's Qwen3
       vector (already computed for search, ~1 ms) for paraphrased
       intents, embeddings for misheard projects. Train on a larger
       LLM-written, blind-labelled query set; confirm on fresh queries.
-      Worth building only once intent moves the eval (above).
+      Worth building only once intent moves the eval (above). **Moot for
+      ranking (2026-10-18):** the ceiling test shows intent can't help
+      through labels; `refs` routing stays with rules.
+- [ ] **Remove the label boost from ranking?** It hasn't helped in any
+      test (eval v1, the tuning grid, the ceiling with perfect labels),
+      and strong boosting hurts. Without it, `decisions` and `unresolved`
+      rank like `search`. Proposal for the author; labels stay stored for
+      `brief` and topic filters.
 - [x] **Fork and resume duplicates.** 38 exchanges were copied across 8
       sessions, identical in timestamp and text. Each exchange now has a
       `content_key` (hash of timestamp + user text + reply, without the
