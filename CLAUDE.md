@@ -20,6 +20,9 @@ docs/design.md.
 - `npm run cairn -- index [--no-embed] [--limit N]`: read new logs, embed what's new
 - `npm run cairn -- search|decisions|unresolved "<query>" [--project P] [--since DATE] [--topic T]`
 - `npm run cairn -- refs <file|sha|#pr|url>` and `npm run cairn -- related <session>`
+- `npm run eval:retrieval -- sample|run`: the retrieval eval (data in
+  `~/.cairn/evals/retrieval/`); re-run it after any change to chunking,
+  ranking, labels or embeddings, and record results in docs/experiments.md
 - `npm run train-labels`: trains the label probes into `~/.cairn/models/labels.json`
   from labelled exchanges (the spike's data in `~/.cairn/spikes/decisions/`)
 - `npm run cairn -- status`

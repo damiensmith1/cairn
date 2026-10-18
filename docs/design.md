@@ -273,6 +273,18 @@ Each links to the full write-up in [[experiments]].
   0.68), so the decision boost barely moves rankings; the one real query
   checked didn't improve. Pointers: 9,189 from 1,690 exchanges; `refs` and
   `related` work as intended.
+- **Retrieval eval v1 (2026-10-17).** 146 checked questions written from
+  random target exchanges: hybrid R@5 0.88, R@10 0.98, MRR 0.72; the
+  target's session is in the top 5 for 0.99. Hybrid beats keyword (0.80)
+  and vector (0.83) alone. The label boost gives no gain (decision R@5
+  0.81 vs. 0.86, 2 of 37, within noise). Optimistic: questions were
+  written looking at the target.
+- **Tuning and reranking (2026-10-17).** On a tune/test split of the
+  eval, no setting of pool size, RRF constant, list weights, label boost
+  or chunk size beat the defaults (pool 50, k 60, equal weights, Qwen3
+  query instruction, 4,000-char chunks). A **cross-encoder reranker**
+  (bge-reranker-v2-m3 over the top 30) is the first clear win: test R@1
+  0.58 → 0.77, MRR 0.71 → 0.84. It costs ~5 s per query on the M2.
 - **The agent is the ceiling.** A Claude labeller understood 119/120
   queries. In Claude Code the agent does step 1 itself.
 
@@ -314,7 +326,8 @@ Each links to the full write-up in [[experiments]].
 4. **Retrieval eval:** labelled questions with known answer sessions;
    tune chunking, fusion, boosts, the reranker and link expansion against
    it. Labels drafted by an LLM and checked by a second, blind LLM
-   labeller.
+   labeller. v1 built 2026-10-17 (`npm run eval:retrieval`); tuning
+   experiments next.
 
 ## Open questions
 - [ ] **Label model quality.** The probe leads but is modest (AUC
@@ -360,7 +373,8 @@ Each links to the full write-up in [[experiments]].
       a target ranked 59th by vector was cut), and how labels boost.
       Probe scores cluster near 0.5, so a multiplicative (1 + p) boost is
       weak; options include boosting by percentile within the candidates.
-      Tune against the retrieval eval, not single queries.
+      Tune against the retrieval eval, not single queries. Eval v1: the
+      boost gives no gain, so it adds nothing until the probes improve.
 - [ ] **A label model for other users.** The probes are trained on the
       author's labelled exchanges and live in `~/.cairn/models/`, not the
       repo. A fresh install has no label model, so labels are off. Ship a
@@ -371,7 +385,17 @@ Each links to the full write-up in [[experiments]].
       lookups work; counting and display don't unify them yet.
 - [ ] **Pointer normalisation:** relative vs. absolute paths per project
       root; telling real SHAs from other hex strings (check against git?).
-- [ ] **Reranker model:** Qwen3-Reranker-0.6B or a bge-reranker, if any.
+- [ ] **Reranker: adopt it, and how?** bge-reranker-v2-m3 over the top 30
+      lifts test MRR 0.71 → 0.84 but takes ~5 s per query on the M2.
+      **The author's call (2026-10-17): 5 s is too long; reranked search
+      must meet the same under-a-second target as search.** So the bar for
+      the next experiment is ≤ ~1 s per query, keeping as much of the gain
+      as possible.
+      Next: smaller models (bge-reranker-base, Qwen3-Reranker-0.6B,
+      MiniLM) and fewer candidates (10–15) to trade a little quality for
+      speed; then how it runs from TypeScript (a Python sidecar like
+      Laya's, or ONNX via transformers.js), and whether it's on by default
+      (MCP, where a few seconds is fine) or a `--rerank` flag (CLI).
 - [x] **Language/runtime:** TypeScript on Node 22+ for the service, CLI,
       dashboard and MCP; label probes evaluated in TypeScript from saved
       weights; Laya as a Python sidecar (`laya-serve`). Decided 2026-10-16

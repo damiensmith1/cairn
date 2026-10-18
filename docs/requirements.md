@@ -81,7 +81,8 @@ See [[background]] for why, and [[design]] for how.
   ongoing cost around cents per day.
 - **Local store:** the store and indexes live on this machine.
 - **Fast enough to feel instant:** search under a second on the full
-  history (target, unmeasured).
+  history, reranking included. Hybrid search meets it (a query embeds in
+  ~21 ms); a 5 s reranked search was judged too slow (2026-10-17).
 - **TypeScript, Node 22+** (assumed: the author's stack and the other
   projects'; not yet discussed).
 

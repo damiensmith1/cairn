@@ -17,7 +17,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "cairn": "tsx src/cli.ts",
-    "train-labels": "tsx scripts/train-labels.ts"
+    "train-labels": "tsx scripts/train-labels.ts",
+    "eval:retrieval": "tsx scripts/eval-retrieval.ts"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",

@@ -20,12 +20,15 @@ export function toFtsQuery(query: string): string {
   return kept.map((w) => `"${w}"`).join(" OR ");
 }
 
-/** Merges ranked lists: each item scores the sum of 1 / (RRF_K + rank) over the lists it appears in. */
-export function fuse(lists: number[][]): Map<number, number> {
+/**
+ * Merges ranked lists: each item scores the sum of weight / (k + rank) over the lists it appears in.
+ */
+export function fuse(lists: number[][], k = RRF_K, weights: number[] = []): Map<number, number> {
   const scores = new Map<number, number>();
-  for (const list of lists) {
-    list.forEach((id, i) => scores.set(id, (scores.get(id) ?? 0) + 1 / (RRF_K + i + 1)));
-  }
+  lists.forEach((list, l) => {
+    const w = weights[l] ?? 1;
+    list.forEach((id, i) => scores.set(id, (scores.get(id) ?? 0) + w / (k + i + 1)));
+  });
   return scores;
 }
 
@@ -45,6 +48,17 @@ export interface SearchOptions {
   topic?: string;
   /** The label model whose stored labels boost and filter; without one, labels are ignored. */
   labels?: LabelModel;
+  /** Candidates taken from each of keyword and vector search before fusion. */
+  pool?: number;
+  /** RRF constant, and the weight of the keyword and vector lists. */
+  rrfK?: number;
+  weights?: [keyword: number, vector: number];
+  /**
+   * How a label lifts a score: "multiply" by (1 + boost·p); "percentile" by (1 + boost·rank of p
+   * among the candidates, 0–1); "confident" only when p ≥ 0.7.
+   */
+  boostMode?: "multiply" | "percentile" | "confident";
+  boost?: number;
 }
 
 export interface Hit {
@@ -65,18 +79,28 @@ export interface SessionGroup {
 /** Hybrid search: keyword ∪ vector, fused, filtered, grouped by session. Returns verbatim exchanges. */
 export async function search(store: Store, embedder: Embedder, query: string, options: SearchOptions = {}): Promise<SessionGroup[]> {
   const limit = options.limit ?? 10;
-  const pool = Math.max(50, limit * 5);
+  const pool = options.pool ?? Math.max(50, limit * 5);
   const keyword = store.keyword(toFtsQuery(query), pool);
   const [vector] = await embedder.embed([query], "query");
   const nearest = store.nearest(vector!, pool);
-  const scores = fuse([keyword.map((m) => m.seq), nearest.map((m) => m.seq)]);
+  const scores = fuse([keyword.map((m) => m.seq), nearest.map((m) => m.seq)], options.rrfK, options.weights);
   // Labels re-rank: a decision question lifts exchanges likely to hold a decision, an open
   // question lifts unresolved ones.
   const labels = options.labels ? store.labels([...scores.keys()], options.labels.version) : new Map();
   if (options.intent === "decision" || options.intent === "open") {
-    for (const [seq, score] of scores) {
+    const p = (seq: number) => {
       const l = labels.get(seq);
-      if (l) scores.set(seq, score * (1 + LABEL_BOOST * (options.intent === "decision" ? l.pDecision : l.pUnresolved)));
+      return l ? (options.intent === "decision" ? l.pDecision : l.pUnresolved) : undefined;
+    };
+    const boost = options.boost ?? LABEL_BOOST;
+    const mode = options.boostMode ?? "multiply";
+    const sorted = [...scores.keys()].map(p).filter((v): v is number => v !== undefined).sort((a, b) => a - b);
+    const rank = (v: number) => (sorted.length > 1 ? sorted.indexOf(v) / (sorted.length - 1) : 0);
+    for (const [seq, score] of scores) {
+      const v = p(seq);
+      if (v === undefined) continue;
+      const lift = mode === "percentile" ? rank(v) : mode === "confident" ? (v >= 0.7 ? v : 0) : v;
+      scores.set(seq, score * (1 + boost * lift));
     }
   }
   const ranked = [...scores.entries()].sort((a, b) => b[1] - a[1]).map(([seq]) => seq);

@@ -10,6 +10,139 @@ Spikes run to settle [[design]] questions with data. Newest first. Raw
 data (conversation excerpts, labels, scores) stays outside the repo in
 `~/.cairn/spikes/`, since it's the author's own conversations.
 
+## 2026-10-17 · Reranker: bge-reranker-v2-m3 on hybrid's top 30
+
+**Setup.** For each of the 146 checked questions, hybrid search (pool 150)
+returns its top 30 exchanges; a cross-encoder (BAAI/bge-reranker-v2-m3,
+568M, via sentence-transformers on the Apple GPU, max 512 tokens) reads
+the question with each candidate's text (user + reply, first 1,500 chars)
+and reorders them. Same tune/test split as the tuning grid. Scripts:
+`npm run eval:retrieval -- dump-rerank | rerank` plus
+`~/.cairn/spikes/rerank.py`.
+
+| | tune R@1 | R@5 | R@10 | MRR | sess5 | test R@1 | R@5 | R@10 | MRR | sess5 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Current search (pool 50) | 0.62 | 0.90 | 0.99 | 0.72 | 0.98 | 0.58 | 0.87 | 0.97 | 0.71 | 1.00 |
+| Hybrid top 30 (pool 150, the reranker's input) | 0.62 | 0.84 | 0.91 | 0.70 | 0.92 | 0.58 | 0.82 | 0.92 | 0.70 | 0.95 |
+| **+ reranker** | **0.67** | **0.94** | **0.98** | **0.79** | **0.99** | **0.77** | **0.93** | **0.95** | **0.84** | **0.98** |
+
+**Latency** on the M2: p50 5.1 s, p95 9.4 s per query for 30 candidates
+(the run spanned a laptop sleep; the one query that included it, 1,983 s,
+is the maximum, so it affects neither p50 nor p95).
+
+**Findings**
+- **The first change that beats the baseline beyond noise**, on both
+  halves: test R@1 0.58 → 0.77 (about 11 more questions answered first),
+  MRR 0.71 → 0.84; tune MRR 0.72 → 0.79. It mostly fixes *ranking*: the
+  right exchange was usually among the 30 already.
+- **Too slow as is for interactive use** on this machine (~5 s). Levers:
+  fewer candidates (top 10–15), shorter candidate text, a smaller
+  cross-encoder (bge-reranker-base, Qwen3-Reranker-0.6B, MiniLM), ONNX.
+  Inside an agent (MCP), a few seconds is tolerable.
+- **Caveat:** questions were written looking at the targets, and a
+  cross-encoder reads full text, so it benefits from shared wording too.
+  The gain is large enough to survive a discount, but a real-query set
+  would confirm it.
+- **Practical notes:** the first attempt hung for ~7 h when the laptop
+  slept mid-run (no network timeout in the model download); fixed by
+  running offline with progress logging. Memory: another ~2.3 GB model on
+  an 8 GB machine, next to Qwen3 embeddings.
+
+## 2026-10-17 · Retrieval tuning: pool, fusion, query instruction, boosts, chunk size
+
+**Method.** The 146 checked questions from retrieval eval v1, split by the
+target's session (hash parity) into a **tune** half (86) and a **test**
+half (60). Configurations are chosen on tune and confirmed on test, so the
+grid doesn't just fit these questions. One question is worth ~0.012 on
+tune and ~0.017 on test; differences of a few hundredths are noise.
+`npm run eval:retrieval -- experiments`.
+
+| Configuration | tune R@1 | R@5 | R@10 | MRR | test R@1 | R@5 | R@10 | MRR |
+|---|---|---|---|---|---|---|---|---|
+| **Baseline: hybrid, pool 50, RRF k 60, equal weights** | 0.62 | 0.90 | 0.99 | 0.72 | 0.58 | 0.87 | 0.97 | 0.71 |
+| Pool 150 | 0.62 | 0.90 | 0.97 | 0.72 | 0.58 | 0.83 | 0.93 | 0.70 |
+| Pool 300 | 0.62 | 0.90 | 0.97 | 0.72 | 0.58 | 0.83 | 0.95 | 0.70 |
+| RRF k 20 | 0.63 | 0.91 | 0.99 | 0.74 | 0.60 | 0.87 | 0.93 | 0.71 |
+| RRF k 120 | 0.62 | 0.87 | 0.99 | 0.72 | 0.58 | 0.87 | 0.97 | 0.71 |
+| Weights keyword 1 : vector 2 | 0.53 | 0.87 | 0.95 | 0.67 | 0.57 | 0.85 | 0.95 | 0.68 |
+| Weights keyword 2 : vector 1 | 0.63 | 0.85 | 0.99 | 0.72 | 0.58 | 0.82 | 0.95 | 0.70 |
+| No query instruction (Qwen3) | 0.56 | 0.80 | 0.97 | 0.67 | 0.62 | 0.88 | 0.95 | 0.72 |
+| Label boost, multiply 1.0 | 0.60 | 0.87 | 0.98 | 0.71 | 0.53 | 0.87 | 0.97 | 0.68 |
+| Label boost, multiply 0.3 | 0.63 | 0.88 | 0.99 | 0.74 | 0.57 | 0.87 | 0.97 | 0.71 |
+| Label boost, percentile 0.3 | 0.56 | 0.86 | 0.95 | 0.68 | 0.53 | 0.85 | 0.95 | 0.67 |
+| Label boost, only if p ≥ 0.7 | 0.56 | 0.88 | 0.97 | 0.68 | 0.50 | 0.83 | 0.93 | 0.64 |
+
+Session R@5 was 0.98–1.00 everywhere except "no query instruction" on
+tune (0.93).
+
+**Chunk size** (the store re-embedded with 2,000-char chunks, 9,210
+chunks instead of 5,727):
+
+| Chunks | tune R@1 | R@5 | R@10 | MRR | test R@1 | R@5 | R@10 | MRR |
+|---|---|---|---|---|---|---|---|---|
+| **4,000 chars (current)** | 0.62 | 0.90 | 0.99 | 0.72 | 0.58 | 0.87 | 0.97 | 0.71 |
+| 2,000 chars | 0.59 | 0.85 | 0.97 | 0.71 | 0.55 | 0.83 | 0.95 | 0.68 |
+
+**Findings**
+- **Nothing beat the baseline.** The best tune results (RRF k 20 and a
+  0.3 multiply boost, MRR 0.74, about two questions) didn't hold on test
+  (0.71, same as baseline). Defaults stay as they are.
+- **A bigger candidate pool doesn't help** and slightly hurts on test:
+  more weak candidates get through fusion. The "sqlite is fine" miss
+  (vector rank 59) is the exception, not the pattern.
+- **Equal weights are right**; tilting either way loses.
+- **Keep Qwen3's query instruction**: without it, tune drops clearly (MRR
+  0.67, session R@5 0.93); test is flat.
+- **No label boost variant helps.** Confirms the probes aren't good
+  enough to steer ranking yet.
+- **Smaller chunks are worse** on both halves. 4,000 chars stays.
+- The grid ran while the store copy was being re-embedded and across a
+  laptop sleep (~6 h wall clock); that affects time only, not results.
+
+## 2026-10-17 · Retrieval eval v1
+
+**Question:** does search find the exchange a realistic question is about,
+and which configuration does it best?
+
+**Data.** 150 target exchanges sampled at random (seed 17) from the 3,120
+substantive ones (reply ≥ 150 chars), excluding the 296 the label probes
+were trained on and fork copies. For each, an agent wrote the question the
+developer would ask weeks later to find it (dictation style, paraphrased,
+a third deliberately vague) and chose its intent: 93 recall, 38 decision,
+19 open. A blind checker confirmed the target answers its question for
+146; 4 dropped. Runner: `npm run eval:retrieval -- run`; data and results
+in `~/.cairn/evals/retrieval/`.
+
+A hit is the target, a fork copy of it, or its neighbour in the same
+session. Session R@5 counts the target's session among the top 5.
+
+| Configuration | R@1 | R@5 | R@10 | MRR | Session R@5 |
+|---|---|---|---|---|---|
+| Keyword only | 0.55 | 0.80 | 0.90 | 0.67 | 0.95 |
+| Vector only | 0.51 | 0.83 | 0.88 | 0.64 | 0.95 |
+| **Hybrid (RRF)** | **0.60** | **0.88** | **0.98** | **0.72** | **0.99** |
+| Hybrid + label boost | 0.58 | 0.87 | 0.97 | 0.70 | 0.99 |
+
+By intent, R@5 hybrid vs. boosted: decision 0.86 vs. 0.81 (n = 37),
+open 0.88 vs. 0.88 (16), recall 0.89 vs. 0.89 (93).
+
+**Findings**
+- **Hybrid beats either half** on every measure: keyword and vector find
+  different things, and fusion keeps both.
+- **The label boost doesn't help.** On decision questions it's 0.81 vs.
+  0.86, which is 2 questions out of 37, so within noise: "no gain" rather
+  than "a loss". It matches the probes' weak separation (scores cluster
+  near 0.5).
+- **Finding the right session is nearly solved** (0.99 in the top 5); the
+  remaining work is ranking the exact exchange first (R@1 0.60).
+
+**Caveats.** Questions were written by an LLM looking at the target, so
+they share more words with it than a real memory-based question would,
+even paraphrased: these numbers are optimistic, keyword search most of
+all. 146 questions, 37 for decisions: differences under ~5 points are
+noise. A real-query set (questions the author actually asks) is the next
+level of evidence.
+
 ## 2026-10-17 · Label probes on stored vectors, and the first boost check
 
 **Training.** The probes were re-trained in TypeScript (logistic and

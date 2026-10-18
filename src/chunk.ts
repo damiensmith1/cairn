@@ -1,8 +1,8 @@
 import type { Exchange } from "./types.js";
 
 /** Target chunk size in characters (~1k tokens) and the overlap between consecutive pieces. */
-export const CHUNK_CHARS = 4000;
-export const OVERLAP_CHARS = 600;
+export const CHUNK_CHARS = Number(process.env.CAIRN_CHUNK_CHARS ?? 4000);
+export const OVERLAP_CHARS = Math.round(CHUNK_CHARS * 0.15);
 
 /** A short header from the exchange's own metadata, so a chunk keeps its meaning out of context. */
 export function header(x: Pick<Exchange, "project" | "session" | "sessionName" | "at" | "files" | "commits">): string {
