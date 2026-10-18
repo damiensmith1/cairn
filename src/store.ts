@@ -400,6 +400,37 @@ export class Store {
     );
   }
 
+  // ---- sessions ------------------------------------------------------------------------
+
+  /** A session's exchanges in the order they happened. */
+  sessionExchanges(session: string): StoredExchange[] {
+    const rows = this.db.prepare("SELECT * FROM exchanges WHERE session = ? ORDER BY at, seq").all(session) as Row[];
+    return rows.map(fromRow);
+  }
+
+  /** The exchange `seq` with up to `before` and `after` of its neighbours in the same session. */
+  around(seq: number, before: number, after: number): StoredExchange[] {
+    const x = this.exchanges([seq])[0];
+    if (!x) return [];
+    const all = this.sessionExchanges(x.session);
+    const i = all.findIndex((e) => e.seq === seq);
+    return all.slice(Math.max(0, i - before), i + after + 1);
+  }
+
+  /** A session id from a full id, a unique prefix of one (4+ characters), or an exchange id like #1234. */
+  resolveSession(input: string): string | undefined {
+    const q = input.trim();
+    const id = /^#?(\d+)$/.exec(q);
+    if (id) {
+      const row = this.db.prepare("SELECT session FROM exchanges WHERE seq = ?").get(Number(id[1])) as { session: string } | undefined;
+      if (row) return row.session;
+    }
+    if (this.db.prepare("SELECT 1 FROM exchanges WHERE session = ? LIMIT 1").get(q)) return q;
+    if (q.length < 4) return undefined;
+    const rows = this.db.prepare("SELECT DISTINCT session FROM exchanges WHERE session LIKE ? || '%' LIMIT 2").all(q) as { session: string }[];
+    return rows.length === 1 ? rows[0]!.session : undefined;
+  }
+
   /** The latest name each session was given. */
   sessionNames(sessions: string[]): Map<string, string> {
     const out = new Map<string, string>();

@@ -11,6 +11,10 @@ export interface Api {
   search(req: SearchRequest): Promise<SearchResponse>;
   refs(target: string): Promise<RefRow[]>;
   related(session: string): Promise<RelatedRow[]>;
+  /** An exchange by id, with its neighbours in the session. */
+  open(id: number, around?: number): Promise<OpenResponse | null>;
+  /** What a session was: when, where, what it changed, its key exchanges, related sessions. */
+  brief(session: string): Promise<BriefResponse | null>;
   status(): Promise<StatusResponse>;
   close(): void;
 }
@@ -58,6 +62,37 @@ export interface RelatedRow {
   session: string;
   shared: number;
   sessionName: string | null;
+}
+
+export interface OpenResponse {
+  target: number;
+  session: string;
+  sessionName: string | null;
+  project: string;
+  exchanges: StoredExchange[];
+}
+
+export interface KeyExchange {
+  seq: number;
+  at: string;
+  user: string;
+  /** Why it's key: it started or ended the session, made a commit, or likely held a decision. */
+  why: ("first" | "last" | "commit" | "decision")[];
+  commits: string[];
+}
+
+export interface BriefResponse {
+  session: string;
+  sessionName: string | null;
+  project: string;
+  cwd: string;
+  first: string;
+  last: string;
+  exchanges: number;
+  commits: string[];
+  files: { path: string; edits: number }[];
+  key: KeyExchange[];
+  related: RelatedRow[];
 }
 
 export interface DaemonInfo {

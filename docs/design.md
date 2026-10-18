@@ -184,6 +184,18 @@ passages, with citations.
   touched, top exchanges by p_decision, and related sessions (those
   sharing the most pointers). Extractive, nothing generated.
 - **ask(question)**: steps 1–5; the only place cairn generates text.
+  Built 2026-10-18 (`src/ask.ts`): a reranked search for 8 passages
+  (header with `#id`, session, project, date; the end of the previous
+  reply, the user message and the reply, capped at 1,500 / 2,500
+  characters), secrets masked, sent inside `<passages>` tags as data,
+  never instructions; Claude Haiku 5.5 at low effort streams an answer
+  citing `[#id]`. It runs in the **caller's process** with the caller's
+  Anthropic credentials, so keys never reach cairnd; retrieval still goes
+  through cairnd.
+- Search results carry ids (`#1234`); `open` shows an exchange with its
+  neighbours, and `brief` takes a session id, a unique prefix, or an
+  exchange id. brief's key exchanges are the first, the last, those that
+  made commits, and up to three with p_decision ≥ 0.65.
 
 ## Storage
 
@@ -333,7 +345,7 @@ Each links to the full write-up in [[experiments]].
    (a) built 2026-10-18: `cairn daemon`, `cairn service start|stop|status`
    (launchd), JSON-RPC over `~/.cairn/cairnd.sock`, the CLI as a thin
    client with an in-process fallback; `cairn live` shows its status and
-   activity as it happens.
+   activity as it happens. (b) built 2026-10-18: `open`, `brief`, `ask`.
 4. **Retrieval eval:** labelled questions with known answer sessions;
    tune chunking, fusion, boosts, the reranker and link expansion against
    it. Labels drafted by an LLM and checked by a second, blind LLM
@@ -369,8 +381,18 @@ Each links to the full write-up in [[experiments]].
 - [ ] **Project from content.** Since folders don't identify projects for
       most sessions, infer it per exchange (pointers' repo paths,
       embedding similarity to project descriptions)?
-- [ ] **Secrets in `ask()`:** scrub known key formats from passages before
-      they go to the LLM?
+- [x] **Secrets in `ask()`:** masked before passages leave the machine
+      (`src/secrets.ts`: private keys, Anthropic/OpenAI/GitHub/AWS/Slack/
+      Google keys, bearer tokens, `*_KEY=`/`*TOKEN=`/`*SECRET=`/`*PASSWORD=`
+      assignments). The local store keeps text as it was. Pattern-based, so
+      not exhaustive. Done 2026-10-18.
+- [ ] **Repairing parsed fields in stored exchanges.** The first commit
+      parser mistook heredocs and scripts that mention "git commit" for
+      commits (47+ of 318 exchanges with commits look wrong); fixed for new
+      exchanges 2026-10-18. Existing records keep the bad values, because
+      the store is append-only. Options: a versioned re-parse of the
+      fields derived from the transcript (files, commits), leaving the
+      conversation text untouched; or a full rebuild (re-embeds, ~40 min+).
 - [ ] **Exchange completeness** during long agentic turns, and the target
       chunk size for splitting (set by the eval).
 - [ ] **Subagent and sidechain transcripts:** 87 nested subagent logs are

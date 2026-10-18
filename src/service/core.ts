@@ -1,4 +1,5 @@
 import { statSync } from "node:fs";
+import { homedir } from "node:os";
 import { OllamaEmbedder } from "../embed.js";
 import type { Embedder } from "../embed.js";
 import { embedPending, extractPending, ingest } from "../ingest.js";
@@ -13,7 +14,20 @@ import type { SearchOptions } from "../search.js";
 import { ClaudeCodeSource } from "../sources/claude-code.js";
 import type { Source } from "../sources/source.js";
 import { Store } from "../store.js";
-import type { Api, DaemonInfo, IndexResult, RefRow, RelatedRow, SearchRequest, SearchResponse, StatusResponse } from "./api.js";
+import { normalizePath } from "../pointers.js";
+import type {
+  Api,
+  BriefResponse,
+  DaemonInfo,
+  IndexResult,
+  KeyExchange,
+  OpenResponse,
+  RefRow,
+  RelatedRow,
+  SearchRequest,
+  SearchResponse,
+  StatusResponse,
+} from "./api.js";
 import type { EventBus } from "./events.js";
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e)).split("\n")[0]!;
@@ -125,6 +139,66 @@ export class Core implements Api {
     const rows = this.store.relatedSessions(session);
     const names = this.store.sessionNames(rows.map((r) => r.session));
     return rows.map((r) => ({ ...r, sessionName: names.get(r.session) ?? null }));
+  }
+
+  async open(id: number, around = 2): Promise<OpenResponse | null> {
+    const exchanges = this.store.around(id, around, around);
+    const target = exchanges.find((x) => x.seq === id);
+    if (!target) return null;
+    const name = this.store.sessionNames([target.session]).get(target.session) ?? null;
+    return { target: id, session: target.session, sessionName: name, project: target.project, exchanges };
+  }
+
+  async brief(input: string): Promise<BriefResponse | null> {
+    const session = this.store.resolveSession(input);
+    if (!session) return null;
+    const all = this.store.sessionExchanges(session);
+    if (all.length === 0) return null;
+    const first = all[0]!;
+    const last = all.at(-1)!;
+
+    const edits = new Map<string, number>();
+    for (const x of all) for (const f of x.files) {
+      // Relative to the session's folder when inside it; otherwise ~-shortened.
+      const full = normalizePath(f, x.cwd);
+      const path = full.startsWith(`${homedir()}/`) ? `~/${full.slice(homedir().length + 1)}` : full;
+      edits.set(path, (edits.get(path) ?? 0) + 1);
+    }
+    const files = [...edits].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([path, n]) => ({ path, edits: n }));
+
+    // Key exchanges, all quoted, never generated: where it started and ended, what it committed,
+    // and the likeliest decisions (labels are weak, so only confident ones, and only a few).
+    const why = new Map<number, KeyExchange["why"]>();
+    const mark = (x: { seq: number }, reason: KeyExchange["why"][number]) => why.set(x.seq, [...(why.get(x.seq) ?? []), reason]);
+    mark(first, "first");
+    if (last !== first) mark(last, "last");
+    for (const x of all.filter((e) => e.commits.length).slice(0, 8)) mark(x, "commit");
+    if (this.labels) {
+      const labels = this.store.labels(all.map((x) => x.seq), this.labels.version);
+      all
+        .map((x) => ({ x, p: labels.get(x.seq)?.pDecision ?? 0 }))
+        .filter((d) => d.p >= 0.65)
+        .sort((a, b) => b.p - a.p)
+        .slice(0, 3)
+        .forEach((d) => mark(d.x, "decision"));
+    }
+    const key = all
+      .filter((x) => why.has(x.seq))
+      .map((x) => ({ seq: x.seq, at: x.at, user: x.user, why: why.get(x.seq)!, commits: x.commits }));
+
+    return {
+      session,
+      sessionName: this.store.sessionNames([session]).get(session) ?? null,
+      project: first.project,
+      cwd: first.cwd,
+      first: first.at,
+      last: last.at,
+      exchanges: all.length,
+      commits: [...new Set(all.flatMap((x) => x.commits))],
+      files,
+      key,
+      related: await this.related(session),
+    };
   }
 
   async status(): Promise<StatusResponse> {

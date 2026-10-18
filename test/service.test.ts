@@ -92,7 +92,10 @@ describe("cairnd", () => {
       expect(n).toBe(2);
 
       const res = await api.search({ query: "embedding model", rerank: false });
-      expect(res.groups[0]!.hits[0]!.exchange.assistant).toContain("Qwen3");
+      const hit = res.groups[0]!.hits[0]!.exchange;
+      expect(hit.assistant).toContain("Qwen3");
+      expect((await api.open(hit.seq, 1))?.exchanges.length).toBe(2);
+      expect((await api.brief("s"))?.exchanges).toBe(2);
       const status = await api.status();
       expect(status.daemon?.pid).toBe(process.pid);
       expect(status.daemon?.lastIndex?.result.appended).toBeGreaterThanOrEqual(0);

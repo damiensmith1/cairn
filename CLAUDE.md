@@ -10,8 +10,8 @@ clients. Sources are plug-ins per coding agent (Claude Code first).
 
 Status: build steps 1–2 work on real data: ingest, local embeddings,
 hybrid search, a MiniLM reranker (on by default), pointers
-(`refs`, `related`) and label probes with boosting (boost not yet tuned). cairnd (watcher, socket, launchd)
-works; no open/brief/ask, init, query understanding or MCP yet. See the build order in
+(`refs`, `related`) and label probes with boosting (boost not yet tuned). cairnd (watcher, socket, launchd),
+`cairn live`, and open/brief/ask work; no init, query understanding or MCP yet. See the build order in
 docs/design.md.
 
 ## Commands
@@ -20,6 +20,8 @@ docs/design.md.
 - `npm run cairn -- index [--no-embed] [--limit N]`: read new logs, embed what's new
 - `npm run cairn -- search|decisions|unresolved "<query>" [--project P] [--since DATE] [--topic T] [--no-rerank]` (reranking is on by default)
 - `npm run cairn -- refs <file|sha|#pr|url>` and `npm run cairn -- related <session>`
+- `npm run cairn -- open <#id>`, `brief <session|#id>`, `ask "<question>"` (ask needs
+  Anthropic credentials: ANTHROPIC_API_KEY or `ant auth login`; it calls Claude Haiku 5.5)
 - `npm run eval:retrieval -- sample|run|reranked`: the retrieval eval (data in
   `~/.cairn/evals/retrieval/`); re-run it after any change to chunking,
   ranking, labels or embeddings, and record results in docs/experiments.md

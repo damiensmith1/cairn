@@ -163,8 +163,9 @@ cairn unresolved <query>      intent: open questions ("open" is the passage-open
 cairn refs <file|sha|pr|url>  pointer lookup
 cairn related <session>       sessions sharing files, commits and links
 cairn sessions <query>        find a session
-cairn brief <session>         extractive session brief
-cairn ask <question>          free text; answers with citations (LLM)
+cairn open <#id>              an exchange from the results, with its neighbours (--around N, --full)
+cairn brief <session|#id>     extractive session brief (id, unique prefix, or an exchange id)
+cairn ask <question>          free text; answers with citations (Claude Haiku 5.5)
 cairn sources                 list / enable / disable sources
 cairn status                  index, backlog, model health
 cairn live                    cairnd's status and activity, as it happens

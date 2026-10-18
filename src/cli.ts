@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { join } from "node:path";
 import { parseArgs } from "node:util";
+import { ask, explainAskError } from "./ask.js";
 import { runLive } from "./live.js";
 import { labelModelPath, logDir, socketPath } from "./paths.js";
 import type { Intent, SessionGroup } from "./search.js";
@@ -17,6 +18,9 @@ const USAGE = `cairn: searchable memory for agent sessions
   cairn unresolved <query>               search, open questions first
      options: --project P  --since YYYY-MM-DD  --topic T  --limit N
               --no-rerank  skip reordering the top 10 with the cross-encoder (faster, worse ranking)
+  cairn open <#id> [--around N] [--full] an exchange from the results, with its neighbours
+  cairn brief <session|#id>              what a session was: dates, commits, files, key exchanges
+  cairn ask <question>                   an answer from your sessions, with citations (Claude Haiku)
   cairn refs <file|sha|#pr|url>          every exchange that edited or mentioned it, oldest first
   cairn related <session>                sessions sharing the most files, commits and links
   cairn status                           what's stored and indexed, and whether cairnd is running
@@ -90,7 +94,7 @@ function print(groups: SessionGroup[]) {
     console.log(`\n${bold(cyan(g.project))} · ${bold(g.sessionName ?? g.session.slice(0, 8))} ${dim(`· ${first.at.slice(0, 10)} · ${g.session}`)}`);
     for (const h of g.hits) {
       const x = h.exchange;
-      console.log(`  ${dim(`${x.at.slice(0, 16).replace("T", " ")} [${h.via.join("+")}${h.rerankScore !== undefined ? ", reranked" : ""}]`)}`);
+      console.log(`  ${bold(`#${x.seq}`)} ${dim(`${x.at.slice(0, 16).replace("T", " ")} [${h.via.join("+")}${h.rerankScore !== undefined ? ", reranked" : ""}]`)}`);
       console.log(`  you    ${oneLine(x.user, 160)}`);
       console.log(`  match  ${dim(oneLine(h.snippet, 280))}`);
       console.log(`  ${dim(`${x.location}:${x.offset}`)}`);
@@ -134,6 +138,86 @@ const searchAs = (intent?: Intent) => async (args: string[]) => {
     a.close();
   }
 };
+
+const when = (iso: string) => iso.slice(0, 16).replace("T", " ");
+const clip = (s: string, max: number) => (s.length > max ? `${s.slice(0, max)}${dim(` … (${s.length - max} more characters, --full)`)}` : s);
+
+async function open(args: string[]) {
+  const { values, positionals } = parseArgs({
+    args,
+    allowPositionals: true,
+    options: { around: { type: "string" }, full: { type: "boolean" } },
+  });
+  const id = Number(positionals[0]?.replace(/^#/, ""));
+  if (!Number.isInteger(id)) return fail(USAGE);
+  const a = await api();
+  try {
+    const res = await a.open(id, values.around ? Number(values.around) : 2);
+    if (!res) return fail(`No exchange #${id}.`);
+    console.log(`${bold(cyan(res.project))} · ${bold(res.sessionName ?? res.session.slice(0, 8))} ${dim(`· ${res.session}`)}`);
+    const max = values.full ? Infinity : 1500;
+    for (const x of res.exchanges) {
+      const here = x.seq === res.target;
+      console.log(`\n${here ? bold(`▶ #${x.seq}`) : dim(`  #${x.seq}`)} ${dim(when(x.at))}`);
+      console.log(`${bold("you")}     ${clip(x.user, max)}`);
+      if (x.assistant) console.log(`${bold("claude")}  ${here ? clip(x.assistant, max) : dim(clip(x.assistant, Math.min(max, 400)))}`);
+    }
+  } finally {
+    a.close();
+  }
+}
+
+async function brief(args: string[]) {
+  const input = args[0];
+  if (!input) return fail(USAGE);
+  const a = await api();
+  try {
+    const b = await a.brief(input);
+    if (!b) return fail(`No session matches "${input}".`);
+    console.log(`${bold(b.sessionName ?? "(unnamed session)")} ${dim(`· ${b.session}`)}`);
+    console.log(`${cyan(b.project)} ${dim(b.cwd)}`);
+    console.log(`${when(b.first)} → ${when(b.last)} · ${b.exchanges} exchanges`);
+    if (b.commits.length) {
+      console.log(`\n${bold("commits")}`);
+      for (const c of b.commits) console.log(`  ${c}`);
+    }
+    if (b.files.length) {
+      console.log(`\n${bold("files edited")}`);
+      for (const f of b.files) console.log(`  ${f.path} ${dim(`×${f.edits}`)}`);
+    }
+    console.log(`\n${bold("key exchanges")}`);
+    for (const k of b.key) {
+      console.log(`  ${bold(`#${k.seq}`)} ${dim(`${when(k.at)} · ${k.why.join(", ")}`)}`);
+      console.log(`    ${oneLine(k.user, 150)}`);
+      for (const c of k.commits) console.log(dim(`    commit: ${c}`));
+    }
+    if (b.related.length) {
+      console.log(`\n${bold("related sessions")}`);
+      for (const r of b.related) console.log(`  ${r.sessionName ?? "(unnamed)"} ${dim(`· ${r.shared} shared · ${r.session}`)}`);
+    }
+  } finally {
+    a.close();
+  }
+}
+
+async function askCommand(args: string[]) {
+  const question = args.join(" ").trim();
+  if (!question) return fail(USAGE);
+  const a = await api();
+  try {
+    const { passages, stopReason } = await ask(a, question, (t) => process.stdout.write(t));
+    if (passages.length === 0) return console.log("No passages matched; nothing to answer from.");
+    process.stdout.write("\n");
+    if (stopReason === "refusal") console.log(dim("(the model declined to answer)"));
+    console.log(`\n${dim("sources:")}`);
+    for (const p of passages) console.log(dim(`  #${p.id} ${p.label}`));
+    console.log(dim("cairn open <#id> shows one in full."));
+  } catch (e) {
+    fail(explainAskError(e));
+  } finally {
+    a.close();
+  }
+}
 
 async function refs(args: string[]) {
   const target = args.join(" ").trim();
@@ -247,6 +331,9 @@ const commands: Record<string, (args: string[]) => Promise<void>> = {
   search: searchAs(),
   decisions: searchAs("decision"),
   unresolved: searchAs("open"),
+  open,
+  brief,
+  ask: askCommand,
   refs,
   related,
   status,

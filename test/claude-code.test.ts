@@ -23,6 +23,11 @@ describe("commitMessage", () => {
     expect(commitMessage('git commit -m "Release 0.2.0"')).toBe("Release 0.2.0");
     expect(commitMessage("git add -A && git commit -q -F - <<'EOF'\nAdd a judge eval\n\n- details\nEOF")).toBe("Add a judge eval");
     expect(commitMessage("git status")).toBeUndefined();
+    // A python heredoc before the commit isn't its message.
+    expect(commitMessage("python3 - <<'EOF'\np='CHANGELOG.md'\nEOF\ngit add -A && git commit -q -m \"Release 0.2.0\"")).toBe("Release 0.2.0");
+    // A script that only mentions git commit isn't a commit.
+    expect(commitMessage("python3 -c \"if 'git commit' in cmd: n += 1\"")).toBeUndefined();
+    expect(commitMessage("cd repo && git -C ../x commit -m 'Fix it'")).toBe("Fix it");
   });
 });
 

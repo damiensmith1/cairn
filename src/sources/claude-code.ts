@@ -44,11 +44,19 @@ export function typedText(e: Entry): string {
   return text && !NOISE.some((n) => text.startsWith(n)) ? text : "";
 }
 
-/** First line of the commit message in a `git commit` shell command, if there is one. */
+/**
+ * First line of the commit message in a `git commit` shell command, if there is one. Only a real
+ * `git commit` invocation counts (at the start of the command or after `&&`, `;`, `|`, `(` or a
+ * newline, optionally `git -C <dir> commit`), and the message is read after it: a script that
+ * merely mentions "git commit", or a heredoc earlier in the command, isn't a commit message.
+ */
 export function commitMessage(command: string): string | undefined {
-  if (!/\bgit\b[^\n|;&]*\bcommit\b/.test(command)) return undefined;
-  const heredoc = /<<-?\s*['"]?(\w+)['"]?\n([\s\S]*?)\n\s*\1/.exec(command);
-  const flag = /(?:^|\s)-m\s+(["'])([\s\S]*?)\1/.exec(command);
+  const invocation = /(?:^|[;&|(\n])\s*git(?:\s+-C\s+\S+)?\s+commit\b/.exec(command);
+  if (!invocation) return undefined;
+  // The message is on the commit's own line: `-m "…"`, or a heredoc that starts there.
+  const rest = command.slice(invocation.index + invocation[0].length);
+  const heredoc = /^[^\n]*?<<-?\s*['"]?(\w+)['"]?\n([\s\S]*?)\n\s*\1/.exec(rest);
+  const flag = /^[^\n]*?(?:^|\s)-m\s+(["'])([\s\S]*?)\1/.exec(rest);
   const message = heredoc?.[2] ?? flag?.[2];
   const first = message?.split("\n").find((l) => l.trim())?.trim();
   return first ? first.slice(0, 200) : undefined;
