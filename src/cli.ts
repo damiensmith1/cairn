@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { ask, explainAskError } from "./ask.js";
 import { keyStore } from "./credentials.js";
-import { history, readUsage, usagePath } from "./usage.js";
+import { history, type HistoryRow, readUsage, usagePath } from "./usage.js";
 import { runLive } from "./live.js";
 import { labelModelPath, logDir, socketPath } from "./paths.js";
 import type { SessionGroup } from "./search.js";
@@ -25,6 +25,7 @@ const USAGE = `cairn: searchable memory for agent sessions
   cairn related <session>                sessions sharing the most files, commits and links
   cairn status                           what's stored and indexed, and whether cairnd is running
   cairn history [--limit N] [--session S] past searches (CLI, agents, ask) and which results were opened
+  cairn history <n>                      what search n returned, opened results marked
   cairn index [--no-embed] [--limit N]   catch up now (asks cairnd if it's running)
      --retry-failed                      also retry exchanges set aside after failing to embed
 
@@ -103,10 +104,10 @@ function print(groups: SessionGroup[]) {
   if (groups.length === 0) return console.log("No matches.");
   for (const g of groups) {
     const first = g.hits[0]!.exchange;
-    console.log(`\n${bold(cyan(g.project))} · ${bold(g.sessionName ?? g.session.slice(0, 8))} ${dim(`· ${first.at.slice(0, 10)} · ${g.session}`)}`);
+    console.log(`\n${bold(cyan(g.project))} · ${bold(g.sessionName ?? g.session.slice(0, 8))} ${dim(`· ${when(first.at).slice(0, 10)} · ${g.session}`)}`);
     for (const h of g.hits) {
       const x = h.exchange;
-      console.log(`  ${bold(`#${x.seq}`)} ${dim(`${x.at.slice(0, 16).replace("T", " ")} [${h.via.join("+")}${h.rerankScore !== undefined ? ", reranked" : ""}]`)}`);
+      console.log(`  ${bold(`#${x.seq}`)} ${dim(`${when(x.at)} [${h.via.join("+")}${h.rerankScore !== undefined ? ", reranked" : ""}]`)}`);
       console.log(`  you    ${oneLine(x.user, 160)}`);
       console.log(`  match  ${dim(oneLine(h.snippet, 280))}`);
       console.log(`  ${dim(`${x.location}:${x.offset}`)}`);
@@ -151,7 +152,14 @@ async function searchCommand(args: string[]) {
   }
 }
 
-const when = (iso: string) => iso.slice(0, 16).replace("T", " ");
+/** A timestamp in local time: "2026-10-18 13:36" (or with seconds). */
+function when(iso: string, seconds = false): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const p = (n: number) => String(n).padStart(2, "0");
+  const time = `${p(d.getHours())}:${p(d.getMinutes())}${seconds ? `:${p(d.getSeconds())}` : ""}`;
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${time}`;
+}
 const clip = (s: string, max: number) => (s.length > max ? `${s.slice(0, max)}${dim(` … (${s.length - max} more characters, --full)`)}` : s);
 
 async function open(args: string[]) {
@@ -242,7 +250,7 @@ async function refs(args: string[]) {
     const rows = await a.refs(target);
     if (rows.length === 0) return console.log("No exchanges point at that.");
     for (const x of rows) {
-      console.log(`${dim(x.at.slice(0, 16).replace("T", " "))} ${bold(x.relation)} ${x.target} ${dim(`· ${x.project} · ${x.sessionName ?? x.session.slice(0, 8)}`)}`);
+      console.log(`${dim(when(x.at))} ${bold(x.relation)} ${x.target} ${dim(`· ${x.project} · ${x.sessionName ?? x.session.slice(0, 8)}`)}`);
       console.log(`  you  ${oneLine(x.user, 160)}`);
     }
   } finally {
@@ -280,7 +288,7 @@ async function status() {
     const up = Math.round((Date.now() - Date.parse(d.startedAt)) / 60_000);
     const doing = d.progress ? `embedding ${d.progress.done}/${d.progress.total}` : d.indexing ? "indexing" : "idle";
     console.log(`cairnd     running, pid ${d.pid}, up ${up} min, ${doing}, reranker ${d.reranker}`);
-    if (d.lastIndex) console.log(dim(`           last index ${d.lastIndex.at.slice(0, 19).replace("T", " ")}: ${d.lastIndex.result.appended} new`));
+    if (d.lastIndex) console.log(dim(`           last index ${when(d.lastIndex.at, true)}: ${d.lastIndex.result.appended} new`));
     if (d.lastError) console.log(`           last error: ${d.lastError}`);
   } finally {
     a.close();
@@ -331,15 +339,48 @@ async function service(args: string[]) {
   fail(USAGE);
 }
 
-/** `cairn history`: reads the usage log directly, so it works with cairnd stopped. */
+/**
+ * `cairn history`: past searches, numbered by their place in the usage log (read directly, so it
+ * works with cairnd stopped). `cairn history <n>` shows what search n returned.
+ */
 async function historyCommand(args: string[]) {
-  const { values } = parseArgs({ args, options: { limit: { type: "string" }, session: { type: "string" } } });
-  const rows = history(readUsage()).filter((r) => !values.session || r.session?.startsWith(values.session));
-  if (rows.length === 0) return console.log(values.session ? "No searches from that session." : `No searches yet. ${dim(`(${usagePath()})`)}`);
-  for (const r of rows.slice(-Number(values.limit ?? 20))) {
-    const who = r.client === "mcp" || r.session ? `${r.client} · ${r.sessionName ?? r.session?.slice(0, 8) ?? ""}` : r.client;
+  const { values, positionals } = parseArgs({ args, allowPositionals: true, options: { limit: { type: "string" }, session: { type: "string" } } });
+  const rows = history(readUsage());
+  if (positionals[0]) return showSearch(rows, Number(positionals[0]));
+  const shown = rows.map((r, i) => ({ r, n: i + 1 })).filter(({ r }) => !values.session || r.session?.startsWith(values.session));
+  if (shown.length === 0) return console.log(values.session ? "No searches from that session." : `No searches yet. ${dim(`(${usagePath()})`)}`);
+  for (const { r, n } of shown.slice(-Number(values.limit ?? 20))) {
     const opened = r.opened.length ? ` · opened ${r.opened.map((id) => `#${id}`).join(", ")}` : "";
-    console.log(`${dim(when(r.at))}  ${cyan(oneLine(who, 28).padEnd(28))}  ${bold(`"${oneLine(r.query, 70)}"`)}  ${dim(`${r.hits.length} hits${opened}`)}`);
+    console.log(`${dim(String(n).padStart(4))}  ${dim(when(r.at))}  ${cyan(oneLine(asker(r), 28).padEnd(28))}  ${bold(`"${oneLine(r.query, 70)}"`)}  ${dim(`${r.hits.length} hits${opened}`)}`);
+  }
+  console.log(dim("\ncairn history <n> shows what a search returned."));
+}
+
+const asker = (r: HistoryRow) => (r.client === "mcp" || r.session ? `${r.client} · ${r.sessionName ?? r.session?.slice(0, 8) ?? ""}` : r.client);
+
+/** The exchanges a past search returned, in the order it showed them; opened ones marked. */
+async function showSearch(rows: HistoryRow[], n: number) {
+  const r = Number.isInteger(n) ? rows[n - 1] : undefined;
+  if (!r) return fail(`No search ${n}. cairn history lists them.`);
+  console.log(`${bold(`"${r.query}"`)} ${dim(`· ${when(r.at)} · ${asker(r)} · ${r.hits.length} hits${r.opened.length ? ` · ${r.opened.length} opened` : ""}`)}`);
+  const a = await api();
+  try {
+    const xs = await a.exchanges(r.hits);
+    let session = "";
+    for (const x of xs) {
+      if (x.session !== session) {
+        session = x.session;
+        console.log(`\n${bold(cyan(x.project))} · ${bold(x.sessionName ?? x.session.slice(0, 8))} ${dim(`· ${x.session}`)}`);
+      }
+      const opened = r.opened.includes(x.seq) ? ` ${bold("opened")}` : "";
+      console.log(`  ${bold(`#${x.seq}`)} ${dim(when(x.at))}${opened}`);
+      console.log(`  you     ${oneLine(x.user, 160)}`);
+      if (x.assistant) console.log(`  claude  ${dim(oneLine(x.assistant, 280))}`);
+    }
+    if (xs.length < r.hits.length) console.log(dim(`\n${r.hits.length - xs.length} of its results are no longer in the store.`));
+    console.log(dim("\ncairn open <#id> shows one in full."));
+  } finally {
+    a.close();
   }
 }
 

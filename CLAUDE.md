@@ -40,7 +40,8 @@ work; query understanding (Laya) is shelved. See the build order in docs/design.
 - `npm run train-labels`: trains the label probes into `~/.cairn/models/labels.json`
   from labelled exchanges (the spike's data in `~/.cairn/spikes/decisions/`)
 - `npm run cairn -- status`
-- `npm run cairn -- history [--limit N] [--session S]`: past searches from the usage log
+- `npm run cairn -- history [--limit N] [--session S]` / `history <n>`: past searches from the usage log,
+  and what search n returned
   (`~/.cairn/logs/usage.jsonl`, written via plainlog, queries masked)
 - `npm run cairn -- live`: watch cairnd's status and activity as it happens
 - `npm run cairn -- daemon` runs cairnd in the foreground; `service start|stop|status`

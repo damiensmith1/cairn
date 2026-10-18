@@ -77,6 +77,8 @@ describe("usage log", () => {
       expect(search).toMatchObject({ message: "search", meta: { query: "storage", client: "mcp", session: "agent-session", hits: [seq] } });
       expect(open).toMatchObject({ message: "open", meta: { id: seq, client: "mcp", session: "agent-session" } });
       expect(history(memory.getLogs())[0]!.opened).toEqual([seq]);
+      // What `cairn history <n>` uses: the logged ids, in order, minus any no longer stored.
+      expect((await api.exchanges([999_999, seq])).map((x) => x.seq)).toEqual([seq]);
     } finally {
       api.close();
       await daemon.stop();

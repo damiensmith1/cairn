@@ -72,6 +72,7 @@ export async function startDaemon(core: Core, options: DaemonOptions): Promise<D
     related: (p: { session: string }) => core.related(p.session),
     open: (p: { id: number; around?: number } & Asker) => core.open(p.id, p.around, { ...(p.client ? { client: p.client } : {}), ...(p.askingSession ? { askingSession: p.askingSession } : {}) }),
     brief: (p: { session: string }) => core.brief(p.session),
+    exchanges: (p: { ids: number[] }) => core.exchanges(p.ids),
     subscribe: async (_params, connection) => {
       const { history, unsubscribe } = events.subscribe((e: CairnEvent) => connection.notify("event", e));
       connection.onClose(unsubscribe);

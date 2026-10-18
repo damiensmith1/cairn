@@ -213,7 +213,8 @@ cairn brief <session|#id>     extractive session brief (id, unique prefix, or an
 cairn ask <question>          free text; answers with citations (Claude Haiku 5.5)
 cairn sources                 list / enable / disable sources
 cairn status                  index, backlog, model health
-cairn history                 past searches (CLI, agents, ask) and which results were opened
+cairn history                 past searches (CLI, agents, ask), numbered, and which results were opened
+cairn history <n>             what search n returned, in its order, opened results marked
 cairn live                    cairnd's status and activity, as it happens
 cairn rebuild [index]         rebuild indexes or labels from the store
 cairn service start|stop|status
@@ -269,8 +270,12 @@ from the core, so cairnd and the in-process fallback both write it.
   result helped, the start of an eval built from real questions instead
   of LLM-written ones.
 - **`cairn history [--limit N] [--session S]`** reads the file directly
-  (works with cairnd stopped) and links each open to the asker's latest
-  search that returned it.
+  (works with cairnd stopped), numbers searches by their place in the log
+  and links each open to the asker's latest search that returned it.
+  **`cairn history <n>`** shows what search n returned: the logged ids,
+  fetched from the store in the order shown then (not a re-run, which
+  could differ today), opened ones marked.
+- **Times** in the CLI are local (since 2026-10-18; they were UTC).
 - **Owner-only:** cairn creates the file 0600 and the folder 0700 before
   plainlog writes (plainlog creates files with default permissions and
   doesn't create folders). A failed write loses a line, never a search.

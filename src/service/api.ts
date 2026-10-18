@@ -14,6 +14,8 @@ export interface Api {
   related(session: string): Promise<RelatedRow[]>;
   /** An exchange by id, with its neighbours in the session. */
   open(id: number, around?: number, from?: Asker): Promise<OpenResponse | null>;
+  /** Exchanges by id, in the order given; ids that don't exist are left out. */
+  exchanges(ids: number[]): Promise<StoredExchange[]>;
   /** What a session was: when, where, what it changed, its key exchanges, related sessions. */
   brief(session: string): Promise<BriefResponse | null>;
   status(): Promise<StatusResponse>;

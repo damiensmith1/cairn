@@ -38,6 +38,7 @@ function fakeApi() {
       open: async (id): Promise<OpenResponse | null> =>
         id === 5 ? { target: 5, session: "11111111-2222-3333-4444-555555555555", sessionName: "storage choice", project: "cairn", exchanges: [exchange(4, "before", "earlier reply"), exchange(5, "which storage?", "SQLite. ".repeat(1000))] } : null,
       brief: async () => null,
+      exchanges: async () => [],
       refs: async () => [],
       related: async () => [],
       status: async () => {

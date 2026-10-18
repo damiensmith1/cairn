@@ -3,6 +3,7 @@ import { createConnection, createServer } from "node:net";
 import type { Socket } from "node:net";
 import type { Api, Asker, BriefResponse, OpenResponse, RefRow, RelatedRow, SearchRequest, SearchResponse, StatusResponse } from "./api.js";
 import type { CairnEvent } from "./events.js";
+import type { StoredExchange } from "../types.js";
 
 /**
  * JSON-RPC 2.0 over a Unix socket, one JSON message per line. A socket rather than a localhost
@@ -178,6 +179,7 @@ export class RemoteApi implements Api {
   refs = (target: string) => this.client.call<RefRow[]>("refs", { target });
   related = (session: string) => this.client.call<RelatedRow[]>("related", { session });
   open = (id: number, around?: number, from: Asker = {}) => this.client.call<OpenResponse | null>("open", { id, around, ...from });
+  exchanges = (ids: number[]) => this.client.call<StoredExchange[]>("exchanges", { ids });
   brief = (session: string) => this.client.call<BriefResponse | null>("brief", { session });
   status = () => this.client.call<StatusResponse>("status");
   /** Asks cairnd to index now. Returns at once; `busy` means a run was already going. */

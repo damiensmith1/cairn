@@ -19,6 +19,7 @@ import { normalizePath } from "../pointers.js";
 import type { Api, Asker, BriefResponse, DaemonInfo, IndexResult, KeyExchange, OpenResponse, RefRow, RelatedRow, SearchRequest, SearchResponse, StatusResponse } from "./api.js";
 import type { EventBus } from "./events.js";
 import { UsageLog } from "../usage.js";
+import type { StoredExchange } from "../types.js";
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e)).split("\n")[0]!;
 
@@ -145,6 +146,11 @@ export class Core implements Api {
     const rows = this.store.relatedSessions(session);
     const names = this.store.sessionNames(rows.map((r) => r.session));
     return rows.map((r) => ({ ...r, sessionName: names.get(r.session) ?? null }));
+  }
+
+  async exchanges(ids: number[]): Promise<StoredExchange[]> {
+    const found = new Map(this.store.exchanges(ids).map((x) => [x.seq, x]));
+    return ids.flatMap((id) => found.get(id) ?? []);
   }
 
   /** The asking session and its name, for the usage log. */
