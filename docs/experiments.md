@@ -10,6 +10,81 @@ Spikes run to settle [[design]] questions with data. Newest first. Raw
 data (conversation excerpts, labels, scores) stays outside the repo in
 `~/.cairn/spikes/`, since it's the author's own conversations.
 
+## 2026-10-18 · Fast reranker: under a second
+
+**Question:** the first reranker (bge-reranker-v2-m3 over the top 30)
+took ~5 s per query, judged too slow. Which reranker setting keeps most of
+the gain within the under-a-second target?
+
+**Grid.** Four cross-encoders, from large to tiny: bge-reranker-v2-m3
+(568M), bge-reranker-base (278M), mxbai-rerank-xsmall-v1 (~70M),
+ms-marco-MiniLM-L-6-v2 (22M); each at 10 or 20 candidates and 256 or 512
+tokens. Latency is per query on the M2 (PyTorch on the Apple GPU), after
+a warm-up query, so model loading isn't counted. Same tune/test split.
+
+**Two confounds found and fixed.** (1) Candidates were first dumped in
+search's *display* order, which groups hits by session, so "top 10" wasn't
+the 10 best-scored and the baseline row was distorted; re-dumped in score
+order. (2) Search sizes its candidate pool from the result limit
+(`max(50, limit × 5)`), so asking for 30 candidates silently used pool
+150, which the tuning grid had shown is slightly worse; visible as top-10
+recall dropping from 0.97 to 0.93. The grid below ran on pool-150
+candidates: fine for comparing rerankers with each other, slightly unfair
+against today's search. The shortlist was re-run on production (pool 50)
+candidates for the final numbers.
+
+**Grid** (pool-150 candidates; every model saw the same ones):
+
+| Reranker | p50 | p95 | tune R@1 | tune MRR | test R@1 | test R@5 | test MRR |
+|---|---|---|---|---|---|---|---|
+| MiniLM, 10, 256 | 0.05 s | 0.06 s | 0.60 | 0.74 | 0.68 | 0.87 | 0.77 |
+| MiniLM, 20, 256 | 0.10 s | 0.68 s | 0.62 | 0.74 | 0.68 | 0.83 | 0.76 |
+| MiniLM, 10, 512 | 0.10 s | 0.19 s | 0.63 | 0.75 | 0.72 | 0.88 | 0.79 |
+| xsmall, 10, 256 | 0.40 s | 1.79 s | 0.64 | 0.75 | 0.65 | 0.88 | 0.74 |
+| xsmall, 20, 256 | 0.81 s | 0.96 s | 0.65 | 0.75 | 0.65 | 0.85 | 0.73 |
+| xsmall, 10, 512 | 1.18 s | 1.59 s | 0.67 | 0.78 | 0.72 | 0.88 | 0.78 |
+| base, 10, 256 | 0.25 s | 0.35 s | 0.66 | 0.77 | 0.68 | 0.88 | 0.76 |
+| base, 20, 256 | 0.67 s | 0.76 s | 0.66 | 0.76 | 0.68 | 0.90 | 0.76 |
+| base, 10, 512 | 0.70 s | 0.80 s | 0.71 | 0.79 | 0.75 | 0.88 | 0.81 |
+| v2-m3, 10, 256 | 1.09 s | 1.84 s | 0.69 | 0.79 | 0.63 | 0.92 | 0.75 |
+| v2-m3, 20, 256 | 2.27 s | 2.97 s | 0.72 | 0.81 | 0.65 | 0.90 | 0.76 |
+| v2-m3, 10, 512 | 2.13 s | 2.85 s | 0.71 | 0.81 | 0.75 | 0.90 | 0.82 |
+
+**Shortlist on production candidates (pool 50), the final numbers:**
+
+| | p50 | tune R@1 | tune MRR | test R@1 | test R@5 | test R@10 | test MRR |
+|---|---|---|---|---|---|---|---|
+| Current search | — | 0.62 | 0.72 | 0.58 | 0.87 | 0.97 | 0.71 |
+| MiniLM, top 10, 512 tokens | **0.08 s** | 0.63 | 0.76 | 0.70 | 0.90 | 0.97 | 0.79 |
+| **bge-reranker-base, top 10, 512 tokens** | **0.56 s** | **0.72** | **0.80** | **0.75** | **0.90** | **0.97** | **0.81** |
+
+(R@10 is unchanged because the reranker only reorders the same 10. The
+bge-reranker-v2-m3 shortlist run was stopped: it's over the bar at ~2 s
+whatever it scores, and it made the laptop unusable. bge-reranker-base's
+p95 in this run, 3.7 s, was a one-off; its grid run had p95 0.80 s.)
+
+**Findings**
+- **bge-reranker-base over the top 10, 512 tokens, meets the bar** at
+  ~0.6 s and keeps most of the big model's gain: test R@1 0.58 → 0.75
+  (about 10 more of 60 questions answered first), MRR 0.71 → 0.81; tune
+  MRR 0.72 → 0.80. The 5 s v2-m3 run reached 0.84.
+- **MiniLM is a credible fast mode** at 0.08 s: test MRR 0.79, but weaker
+  on tune (0.76) and at ranking first.
+- **512 tokens beats 256** for every model: the reranker needs the text.
+- **10 candidates beats 20**: the right exchange is nearly always in the
+  top 10 already (R@10 0.97–0.99); more candidates add noise.
+- **The big model isn't worth it**: +0.01–0.02 MRR over base at 3× the
+  latency.
+- **mxbai-xsmall is slow on the Apple GPU** despite its size (0.4–1.2 s,
+  high variance), so size alone doesn't predict speed here.
+- **Search's pool depends on the result limit**, so `--limit 30` changes
+  which candidates are fused. Worth decoupling.
+
+**Caveats.** Latency is PyTorch on the Apple GPU from Python; cairn would
+run the reranker as a sidecar or via ONNX, which may be faster or slower.
+Memory: bge-reranker-base is ~1.1 GB more next to Qwen3 embeddings on an
+8 GB machine. Questions were written looking at their targets, as before.
+
 ## 2026-10-17 · Reranker: bge-reranker-v2-m3 on hybrid's top 30
 
 **Setup.** For each of the 146 checked questions, hybrid search (pool 150)

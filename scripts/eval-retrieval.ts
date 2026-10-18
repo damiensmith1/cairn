@@ -228,12 +228,14 @@ async function runConfigs(configs: Config[], split: boolean, tag: string) {
   return results;
 }
 
-/** Candidates for the reranker experiment: hybrid's top 30 per question (pool 150), as text. */
+/** Candidates for the reranker experiments: production hybrid's top 30 per question (pool 50), as text. */
 async function dumpRerank() {
   const { kept } = loadQuestions();
   const rows = [];
   for (const q of kept) {
-    const hits = (await search(store, embedder, q.question, { limit: 30, pool: 150 })).flatMap((g) => g.hits);
+    // Score order, not display order: search groups hits by session for display.
+    // pool 50 = production (search sizes the pool from limit, so set it explicitly).
+    const hits = (await search(store, embedder, q.question, { limit: 30, pool: 50 })).flatMap((g) => g.hits).sort((a, b) => b.score - a.score);
     rows.push({
       id: q.id,
       query: q.question,
@@ -244,18 +246,27 @@ async function dumpRerank() {
   console.log(`wrote ${rows.length} candidate lists to ${join(dir, "rerank_input.jsonl")}`);
 }
 
-/** Scores the reranker's order (rerank_output.jsonl: { id, order: seq[] }) against hybrid's. */
-async function scoreRerank() {
+/**
+ * Scores reranked orders against hybrid's. Each tag names an output from rerank.py
+ * (rerank_output_<tag>.jsonl: { id, order: seq[] }); reranked candidates come first, the rest of
+ * hybrid's list follows in its own order.
+ */
+async function scoreRerank(tags: string[]) {
   const input = new Map((jsonl(join(dir, "rerank_input.jsonl")) as { id: string; candidates: { seq: number }[] }[]).map((r) => [r.id, r]));
-  const output = new Map((jsonl(join(dir, "rerank_output.jsonl")) as { id: string; order: number[] }[]).map((r) => [r.id, r.order]));
-  await runConfigs(
-    [
-      { name: "hybrid top 30 (pool 150)", run: async (q) => byRank(input.get(q.id)?.candidates.map((c) => c.seq) ?? [], 10) },
-      { name: "+ reranker (bge-v2-m3)", run: async (q) => byRank(output.get(q.id) ?? [], 10) },
-    ],
-    true,
-    "rerank",
-  );
+  const hybridOrder = (id: string) => input.get(id)?.candidates.map((c) => c.seq) ?? [];
+  // The baseline is exactly what search returns today (grouped by session, as the eval always scored it).
+  const configs: Config[] = [hybrid("hybrid (production)")];
+  for (const tag of tags) {
+    const output = new Map((jsonl(join(dir, `rerank_output_${tag}.jsonl`)) as { id: string; order: number[] }[]).map((r) => [r.id, r.order]));
+    configs.push({
+      name: tag,
+      run: async (q) => {
+        const top = output.get(q.id) ?? [];
+        return byRank([...top, ...hybridOrder(q.id).filter((s) => !top.includes(s))], 10);
+      },
+    });
+  }
+  await runConfigs(configs, true, "rerank");
 }
 
 const mode = process.argv[2];
@@ -265,7 +276,7 @@ try {
   else if (mode === "experiments") await runConfigs(experiments, true, "experiments");
   else if (mode === "hybrid") await runConfigs([hybrid("hybrid")], true, "hybrid");
   else if (mode === "dump-rerank") await dumpRerank();
-  else if (mode === "rerank") await scoreRerank();
+  else if (mode === "rerank") await scoreRerank(process.argv.slice(3));
   else console.log("usage: eval-retrieval sample | run | experiments | hybrid");
 } finally {
   store.close();

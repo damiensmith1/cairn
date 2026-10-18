@@ -285,6 +285,10 @@ Each links to the full write-up in [[experiments]].
   query instruction, 4,000-char chunks). A **cross-encoder reranker**
   (bge-reranker-v2-m3 over the top 30) is the first clear win: test R@1
   0.58 → 0.77, MRR 0.71 → 0.84. It costs ~5 s per query on the M2.
+- **A fast reranker fits the bar (2026-10-18).** bge-reranker-base over
+  the top 10 at 512 tokens takes ~0.6 s on the M2 and lifts test R@1 0.58
+  → 0.75, MRR 0.71 → 0.81 (the 5 s big model reached 0.84). MiniLM does
+  0.08 s at test MRR 0.79. 512 tokens beats 256; 10 candidates beats 20.
 - **The agent is the ceiling.** A Claude labeller understood 119/120
   queries. In Claude Code the agent does step 1 itself.
 
@@ -369,6 +373,9 @@ Each links to the full write-up in [[experiments]].
       branch?
 - [ ] **Where the watcher runs:** `cairn watch` as a long-running process,
       launchd, or inside the MCP server process.
+- [ ] **Pool tied to limit:** search's candidate pool is `max(50, limit ×
+      5)`, so a larger `--limit` changes which candidates are fused (pool
+      150 was slightly worse in the grid). Decouple pool from limit.
 - [ ] **Ranking:** fusion method, candidate pool size (50 per list today;
       a target ranked 59th by vector was cut), and how labels boost.
       Probe scores cluster near 0.5, so a multiplicative (1 + p) boost is
@@ -388,9 +395,12 @@ Each links to the full write-up in [[experiments]].
 - [ ] **Reranker: adopt it, and how?** bge-reranker-v2-m3 over the top 30
       lifts test MRR 0.71 → 0.84 but takes ~5 s per query on the M2.
       **The author's call (2026-10-17): 5 s is too long; reranked search
-      must meet the same under-a-second target as search.** So the bar for
-      the next experiment is ≤ ~1 s per query, keeping as much of the gain
-      as possible.
+      must meet the same under-a-second target as search.**
+      **Fast-reranker result (2026-10-18): bge-reranker-base over the top
+      10, 512 tokens, ~0.6 s, test MRR 0.81** (MiniLM 0.08 s, 0.79).
+      Candidate for adoption; still open: confirm on real queries, run it
+      from TypeScript (sidecar or ONNX; an ONNX export of bge-reranker-base
+      exists) and re-measure latency there, and memory alongside Qwen3.
       Next: smaller models (bge-reranker-base, Qwen3-Reranker-0.6B,
       MiniLM) and fewer candidates (10–15) to trade a little quality for
       speed; then how it runs from TypeScript (a Python sidecar like
