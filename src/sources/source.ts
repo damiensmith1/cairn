@@ -20,6 +20,11 @@ export interface ReadResult {
 /** One coding agent's session logs. The rest of cairn only sees the exchanges it produces. */
 export interface Source {
   readonly id: string;
+  /**
+   * Bump when parsing changes what's derived from a log (files edited, commits), so stored
+   * exchanges get those fields re-derived. Conversation text is never re-derived.
+   */
+  readonly parserVersion: string;
   /** Folders to watch for changes. */
   roots(): string[];
   /** Every log file to read. */

@@ -47,8 +47,11 @@ Read these before non-trivial changes:
 
 ## Conventions
 - Never modify transcripts. They are read-only input.
-- The store is append-only: records are never edited or deleted. Indexes
-  and enrichments are derived and must be rebuildable from the store.
+- The store is append-only: records are never deleted, and conversation
+  text (user, assistant) is never edited. Fields parsed from the transcript
+  (files, commits) may only change by bumping the source's `parserVersion`,
+  which re-derives them for stored exchanges; never hand-edit them.
+  Indexes and enrichments are derived and must be rebuildable from the store.
 - Everything is keyed by content hash; ingest must be idempotent.
 - An LLM writes text only to answer a question (`ask`), from retrieved
   passages, with citations. No background summarising.

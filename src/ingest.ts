@@ -2,6 +2,7 @@ import { stat } from "node:fs/promises";
 import { chunkTexts } from "./chunk.js";
 import { extractPointers, POINTERS_VERSION } from "./pointers.js";
 import type { Embedder } from "./embed.js";
+import { initialState } from "./sources/source.js";
 import type { Source } from "./sources/source.js";
 import type { Store } from "./store.js";
 
@@ -12,6 +13,33 @@ export interface IngestResult {
   files: number;
   changed: number;
   appended: number;
+  /** Stored exchanges whose parsed fields were re-derived after a parser change. */
+  reparsed: number;
+}
+
+/**
+ * After a source's parser changes, re-reads all its logs and re-derives the parsed fields of
+ * exchanges already stored (Store.updateParsed). Runs once per parser version; on a fresh store
+ * it only records the version.
+ */
+async function reparseIfNeeded(store: Store, source: Source): Promise<number> {
+  const key = `parser:${source.id}`;
+  if (store.meta(key) === source.parserVersion) return 0;
+  let changed = 0;
+  const empty = !store.db.prepare("SELECT 1 FROM exchanges WHERE source = ? LIMIT 1").get(source.id);
+  if (!empty) {
+    for (const location of await source.locations()) {
+      await new Promise((resolve) => setImmediate(resolve));
+      try {
+        const { exchanges } = await source.read(location, initialState(), true);
+        changed += store.updateParsed(exchanges);
+      } catch {
+        // unreadable log: left as it was
+      }
+    }
+  }
+  store.setMeta(key, source.parserVersion);
+  return changed;
 }
 
 /**
@@ -19,8 +47,9 @@ export interface IngestResult {
  * cursors skip what was read, and the store ignores exchanges it already holds.
  */
 export async function ingest(store: Store, sources: Source[], now = Date.now()): Promise<IngestResult> {
-  const result: IngestResult = { files: 0, changed: 0, appended: 0 };
+  const result: IngestResult = { files: 0, changed: 0, appended: 0, reparsed: 0 };
   for (const source of sources) {
+    result.reparsed += await reparseIfNeeded(store, source);
     for (const location of await source.locations()) {
       result.files++;
       // Let a server in the same process (cairnd) answer between files.

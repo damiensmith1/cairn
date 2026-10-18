@@ -177,6 +177,38 @@ export class Store {
     this.db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, value);
   }
 
+  /**
+   * Re-derives the parsed fields (files edited, commits) of exchanges already stored, matched by
+   * hash, after a parser fix. Conversation text is never changed: it's the record; these fields are
+   * a reading of it. Exchanges whose files changed lose their pointers, so they're re-extracted.
+   * Returns how many exchanges changed.
+   */
+  updateParsed(items: { hash: string; files: string[]; commits: string[] }[]): number {
+    const find = this.db.prepare("SELECT * FROM exchanges WHERE hash = ?");
+    const update = this.db.prepare("UPDATE exchanges SET files = ?, commits = ? WHERE seq = ?");
+    const fts = this.db.prepare("UPDATE exchanges_fts SET meta = ? WHERE rowid = ?");
+    const dropPointers = this.db.prepare("DELETE FROM pointers WHERE exchange_seq = ?");
+    const unmark = this.db.prepare("DELETE FROM enrichments WHERE exchange_seq = ? AND enricher = 'pointers'");
+    let changed = 0;
+    this.db.transaction(() => {
+      for (const item of items) {
+        const row = find.get(item.hash) as Row | undefined;
+        if (!row) continue;
+        const files = JSON.stringify(item.files);
+        const commits = JSON.stringify(item.commits);
+        if (row.files === files && row.commits === commits) continue;
+        update.run(files, commits, row.seq);
+        fts.run(ftsColumns({ ...fromRow(row), files: item.files, commits: item.commits }).meta, row.seq);
+        if (row.files !== files) {
+          dropPointers.run(row.seq);
+          unmark.run(row.seq);
+        }
+        changed++;
+      }
+    })();
+    return changed;
+  }
+
   /** Rebuilds the keyword index from the store. It's derived data: nothing is lost. */
   rebuildKeywordIndex() {
     const rows = this.db.prepare("SELECT * FROM exchanges").all() as Row[];

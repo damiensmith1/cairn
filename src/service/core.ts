@@ -71,6 +71,7 @@ export class Core implements Api {
   async index(options: { embed?: boolean; limit?: number } = {}, onProgress?: (p: EmbedProgress) => void): Promise<IndexResult> {
     const t0 = Date.now();
     const r = await ingest(this.store, this.sources);
+    if (r.reparsed) this.events?.emit({ type: "reparsed", exchanges: r.reparsed, ms: Date.now() - t0 });
     if (r.changed) this.events?.emit({ type: "read", files: r.files, changed: r.changed, appended: r.appended, ms: Date.now() - t0 });
     const linked = extractPending(this.store);
     if (linked) this.events?.emit({ type: "pointers", exchanges: linked });

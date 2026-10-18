@@ -7,6 +7,7 @@ export type CairnEvent =
   | { type: "sweep"; at: string }
   | { type: "index-start"; at: string }
   | { type: "read"; at: string; files: number; changed: number; appended: number; ms: number }
+  | { type: "reparsed"; at: string; exchanges: number; ms: number }
   | { type: "pointers"; at: string; exchanges: number }
   | { type: "embedding"; at: string; done: number; total: number; chunks: number }
   | { type: "embedded"; at: string; exchanges: number; chunks: number; ms: number }

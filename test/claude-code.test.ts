@@ -28,6 +28,10 @@ describe("commitMessage", () => {
     // A script that only mentions git commit isn't a commit.
     expect(commitMessage("python3 -c \"if 'git commit' in cmd: n += 1\"")).toBeUndefined();
     expect(commitMessage("cd repo && git -C ../x commit -m 'Fix it'")).toBe("Fix it");
+    // A later command's heredoc or -m isn't the commit's message.
+    expect(commitMessage("git commit -q -m \"Release 0.1.0\" && git tag -a v0.1.0 -m \"v0.1.0\"")).toBe("Release 0.1.0");
+    expect(commitMessage("git commit -q -m \"Ship it\" && python3 - <<'EOF'\nimport json\nEOF")).toBe("Ship it");
+    expect(commitMessage("git commit -m \"Fix a; b\"")).toBe("Fix a; b");
   });
 });
 
@@ -93,5 +97,31 @@ describe("ClaudeCodeSource", () => {
     appendFileSync(files.s1!, '{"type":"user","message":{"content":"half');
     const { exchanges } = await new ClaudeCodeSource(root).read(files.s1!, initialState(), true);
     expect(exchanges).toHaveLength(2);
+  });
+});
+
+describe("re-deriving parsed fields after a parser change", () => {
+  it("fixes files and commits of stored exchanges once, leaving text alone", async () => {
+    const { utimesSync } = await import("node:fs");
+    const { ingest } = await import("../src/ingest.js");
+    const { Store } = await import("../src/store.js");
+    const { root, files } = projectsDir({
+      s: [user("commit it"), assistant([text("Done."), toolUse("Bash", { command: 'git commit -m "Keep 0.85"' })])],
+    });
+    const old = Date.now() / 1000 - 3600;
+    utimesSync(files.s!, old, old);
+    const store = new Store(":memory:", 8);
+    const source = new ClaudeCodeSource(root);
+    expect((await ingest(store, [source])).reparsed).toBe(0); // fresh store: only records the version
+    // Simulate a record parsed by an older, buggy parser.
+    store.db.prepare(`UPDATE exchanges SET commits = '["p=CHANGELOG.md"]'`).run();
+    store.setMeta("parser:claude-code", "1");
+    const r = await ingest(store, [source]);
+    expect(r.reparsed).toBe(1);
+    const [x] = store.sessionExchanges("s");
+    expect(x!.commits).toEqual(["Keep 0.85"]);
+    expect(x!.user).toBe("commit it");
+    expect(store.keyword('"keep"', 5).length).toBe(1); // keyword index follows
+    expect((await ingest(store, [source])).reparsed).toBe(0); // once per version
   });
 });

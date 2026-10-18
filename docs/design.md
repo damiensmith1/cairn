@@ -386,13 +386,18 @@ Each links to the full write-up in [[experiments]].
       Google keys, bearer tokens, `*_KEY=`/`*TOKEN=`/`*SECRET=`/`*PASSWORD=`
       assignments). The local store keeps text as it was. Pattern-based, so
       not exhaustive. Done 2026-10-18.
-- [ ] **Repairing parsed fields in stored exchanges.** The first commit
-      parser mistook heredocs and scripts that mention "git commit" for
-      commits (47+ of 318 exchanges with commits look wrong); fixed for new
-      exchanges 2026-10-18. Existing records keep the bad values, because
-      the store is append-only. Options: a versioned re-parse of the
-      fields derived from the transcript (files, commits), leaving the
-      conversation text untouched; or a full rebuild (re-embeds, ~40 min+).
+- [x] **Repairing parsed fields in stored exchanges** (decided 2026-10-18,
+      option: versioned re-parse). Each source has a `parserVersion`; when
+      it changes, the next index re-reads that source's logs and
+      re-derives the parsed fields (files edited, commits) of exchanges
+      already stored, matched by hash (`Store.updateParsed`), updating the
+      keyword index and re-extracting pointers where files changed.
+      Conversation text is never re-derived: it's the record; the parsed
+      fields are a reading of it. A full rebuild (re-embedding, 40+ min)
+      was rejected. First use: the commit parser took heredocs and scripts
+      mentioning "git commit" for commits (v2), then a later command's
+      heredoc or `-m` (v3); re-parsing all 404 logs took ~4 s and fixed 83
+      and then 8 exchanges (318 → 271 with commits, none suspicious left).
 - [ ] **Exchange completeness** during long agentic turns, and the target
       chunk size for splitting (set by the eval).
 - [ ] **Subagent and sidechain transcripts:** 87 nested subagent logs are

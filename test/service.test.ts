@@ -151,7 +151,7 @@ describe("live events", () => {
     expect(formatEvent({ type: "embedded", at, exchanges: 1, chunks: 2, ms: 410 })?.text).toBe("1 exchange · 2 chunks · 410 ms");
     expect(formatEvent({ type: "embedding", at, done: 5, total: 10, chunks: 6 })?.key).toBe("embedding");
     expect(formatEvent({ type: "sweep", at })).toBeUndefined();
-    const quiet = { files: 404, changed: 0, appended: 0, linked: 0, embedded: 0, chunks: 0, labelled: 0, labels: false };
+    const quiet = { files: 404, changed: 0, appended: 0, reparsed: 0, linked: 0, embedded: 0, chunks: 0, labelled: 0, labels: false };
     expect(formatEvent({ type: "index-done", at, ms: 12, result: quiet })).toBeUndefined();
   });
 });

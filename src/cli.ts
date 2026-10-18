@@ -77,6 +77,7 @@ async function index(args: string[]) {
     );
     if (tty && r.embedded) process.stdout.write("\n");
     console.log(`read ${r.changed} of ${r.files} logs, ${bold(String(r.appended))} new exchanges`);
+    if (r.reparsed) console.log(`re-derived files and commits for ${r.reparsed} exchanges (parser update)`);
     if (r.linked) console.log(`extracted pointers from ${r.linked} exchanges`);
     if (r.embedError) return fail(r.embedError);
     if (r.embedded) console.log(`embedded ${r.embedded} exchanges (${r.chunks} chunks) ${dim(`in ${Math.round((Date.now() - t) / 1000)} s`)}`);

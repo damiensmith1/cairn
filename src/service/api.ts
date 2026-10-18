@@ -43,6 +43,8 @@ export interface IndexResult {
   files: number;
   changed: number;
   appended: number;
+  /** Stored exchanges whose parsed fields (files, commits) were re-derived after a parser change. */
+  reparsed: number;
   linked: number;
   embedded: number;
   chunks: number;

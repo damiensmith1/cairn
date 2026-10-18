@@ -53,11 +53,20 @@ export function typedText(e: Entry): string {
 export function commitMessage(command: string): string | undefined {
   const invocation = /(?:^|[;&|(\n])\s*git(?:\s+-C\s+\S+)?\s+commit\b/.exec(command);
   if (!invocation) return undefined;
-  // The message is on the commit's own line: `-m "…"`, or a heredoc that starts there.
+  // The message belongs to this command only if nothing separates it from `git commit`: a
+  // heredoc or `-m` after `&&`, `;`, `|` or a newline belongs to a later command (`git tag -m`).
   const rest = command.slice(invocation.index + invocation[0].length);
-  const heredoc = /^[^\n]*?<<-?\s*['"]?(\w+)['"]?\n([\s\S]*?)\n\s*\1/.exec(rest);
-  const flag = /^[^\n]*?(?:^|\s)-m\s+(["'])([\s\S]*?)\1/.exec(rest);
-  const message = heredoc?.[2] ?? flag?.[2];
+  const ours = (i: number) => !/&&|\|\||[;|\n]/.test(rest.slice(0, i));
+  let message: string | undefined;
+  const marker = /<<-?\s*['"]?(\w+)['"]?/.exec(rest);
+  if (marker && ours(marker.index)) {
+    const body = rest.slice(rest.indexOf("\n", marker.index) + 1);
+    const end = body.search(new RegExp(`^\\s*${marker[1]}\\s*$`, "m"));
+    message = end >= 0 ? body.slice(0, end) : body;
+  } else {
+    const flag = /(?:^|\s)-m\s+(["'])([\s\S]*?)\1/.exec(rest);
+    if (flag && ours(flag.index)) message = flag[2];
+  }
   const first = message?.split("\n").find((l) => l.trim())?.trim();
   return first ? first.slice(0, 200) : undefined;
 }
@@ -82,6 +91,11 @@ interface Building {
 /** Reads Claude Code transcripts: `<projects dir>/<encoded cwd>/<session id>.jsonl`. */
 export class ClaudeCodeSource implements Source {
   readonly id = "claude-code";
+  /**
+   * v2: commits only from a real `git commit` invocation (v1 also took heredocs and mentions).
+   * v3: and only a message not separated from it by `&&`, `;`, `|` or a newline.
+   */
+  readonly parserVersion = "3";
 
   constructor(private readonly root: string) {}
 

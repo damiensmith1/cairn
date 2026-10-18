@@ -29,6 +29,8 @@ export function formatEvent(e: CairnEvent): Line | undefined {
       return e.appended
         ? { at, kind: "read", text: `${plural(e.appended, "new exchange")} from ${plural(e.changed, "log")} · ${e.ms} ms`, tone: "info" }
         : { at, kind: "read", text: `${plural(e.changed, "log")} · nothing complete yet (an exchange is still in progress)`, tone: "dim" };
+    case "reparsed":
+      return { at, kind: "reparsed", text: `re-derived files and commits for ${plural(e.exchanges, "exchange")} (parser update) · ${e.ms} ms`, tone: "info" };
     case "pointers":
       return { at, kind: "pointers", text: `linked ${plural(e.exchanges, "exchange")}`, tone: "dim" };
     case "embedding":

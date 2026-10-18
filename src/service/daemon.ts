@@ -45,6 +45,7 @@ export async function startDaemon(core: Core, options: DaemonOptions): Promise<D
       core.daemon!.lastIndex = { at: new Date().toISOString(), result };
       delete core.daemon!.lastError;
       events.emit({ type: "index-done", ms: Date.now() - started, result });
+      if (result.reparsed) log(`re-derived files and commits for ${result.reparsed} exchanges (parser update)`);
       if (result.appended || result.embedded || result.labelled) {
         log(`indexed in ${Date.now() - started} ms: ${result.appended} new exchanges, ${result.embedded} embedded, ${result.labelled} labelled`);
       }
