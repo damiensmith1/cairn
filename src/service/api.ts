@@ -33,6 +33,8 @@ export interface SearchRequest {
   query: string;
   project?: string;
   since?: string;
+  /** Only exchanges on or before this date (or ISO timestamp); see SearchOptions.until. */
+  until?: string;
   topic?: string;
   limit?: number;
   /** Rerank the top candidates (default true). */

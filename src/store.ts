@@ -74,6 +74,12 @@ export const contentKey = (x: Pick<Exchange, "at" | "user" | "assistant">) =>
 /** Times an exchange may fail to embed on its own before it's set aside (cairn index --retry-failed retries). */
 export const MAX_EMBED_ATTEMPTS = 3;
 
+/** A time range over exchanges' `at`, as ISO timestamps: since inclusive, until exclusive. */
+export interface TimeWindow {
+  since?: string;
+  until?: string;
+}
+
 /** A search result's position in one ranked list, with the text that matched. */
 export interface Match {
   seq: number;
@@ -345,25 +351,41 @@ export class Store {
   }
 
   /** Keyword search, best first, with the fragment that matched. `match` is an FTS5 query. */
-  keyword(match: string, limit: number): Match[] {
+  /** Best keyword matches; with a window, only among exchanges inside it. */
+  keyword(match: string, limit: number, window: TimeWindow = {}): Match[] {
     if (!match) return [];
     return this.db
       .prepare(
-        `SELECT rowid seq, snippet(exchanges_fts, 0, '«', '»', '…', 24) snippet FROM exchanges_fts
-         WHERE exchanges_fts MATCH ? ORDER BY bm25(exchanges_fts) LIMIT ?`,
+        `SELECT exchanges_fts.rowid seq, snippet(exchanges_fts, 0, '«', '»', '…', 24) snippet FROM exchanges_fts
+         JOIN exchanges e ON e.seq = exchanges_fts.rowid
+         WHERE exchanges_fts MATCH @match AND (@since IS NULL OR e.at >= @since) AND (@until IS NULL OR e.at < @until)
+         ORDER BY bm25(exchanges_fts) LIMIT @limit`,
       )
-      .all(match, limit) as Match[];
+      .all({ match, limit, since: window.since ?? null, until: window.until ?? null }) as Match[];
   }
 
   /** Vector search, best first by each exchange's closest chunk, with that chunk's text (header removed). */
-  nearest(vector: Float32Array, limit: number): Match[] {
+  /**
+   * Nearest chunks to `vector`, one result per exchange. With a window, the nearest-neighbour
+   * search itself only considers chunks of exchanges inside it (sqlite-vec's `rowid IN`), so a
+   * narrow window isn't crowded out by better matches from other times.
+   */
+  nearest(vector: Float32Array, limit: number, window: TimeWindow = {}): Match[] {
     const k = Math.max(1, Math.floor(limit * 3));
+    const windowed = window.since !== undefined || window.until !== undefined;
+    const inWindow = windowed
+      ? `AND rowid IN (SELECT c.id FROM chunks c JOIN exchanges e ON e.seq = c.exchange_seq
+           WHERE (@since IS NULL OR e.at >= @since) AND (@until IS NULL OR e.at < @until))`
+      : "";
     const rows = this.db
       .prepare(
-        `WITH knn AS (SELECT rowid, distance FROM chunk_vectors WHERE embedding MATCH ? AND k = ${k})
+        `WITH knn AS (SELECT rowid, distance FROM chunk_vectors WHERE embedding MATCH @vector AND k = ${k} ${inWindow})
          SELECT c.exchange_seq seq, c.text text FROM knn JOIN chunks c ON c.id = knn.rowid ORDER BY knn.distance`,
       )
-      .all(Buffer.from(vector.buffer, vector.byteOffset, vector.byteLength)) as { seq: number; text: string }[];
+      .all({
+        vector: Buffer.from(vector.buffer, vector.byteOffset, vector.byteLength),
+        ...(windowed ? { since: window.since ?? null, until: window.until ?? null } : {}),
+      }) as { seq: number; text: string }[];
     const out = new Map<number, Match>();
     for (const r of rows) {
       if (!out.has(r.seq)) out.set(r.seq, { seq: r.seq, snippet: r.text.slice(r.text.indexOf("\n---\n") + 5) });

@@ -16,7 +16,7 @@ import { AlreadyRunning, connect, RemoteApi } from "./service/rpc.js";
 const USAGE = `cairn: searchable memory for agent sessions
 
   cairn search <query>                   hybrid search, top 10 reranked
-     options: --project P  --since YYYY-MM-DD  --topic T  --limit N
+     options: --project P  --since YYYY-MM-DD  --until YYYY-MM-DD  --topic T  --limit N
               --no-rerank  skip reordering the top 10 with the cross-encoder (faster, worse ranking)
   cairn open <#id> [--around N] [--full] an exchange from the results, with its neighbours
   cairn brief <session|#id>              what a session was: dates, commits, files, key exchanges
@@ -122,6 +122,7 @@ async function searchCommand(args: string[]) {
     options: {
       project: { type: "string" },
       since: { type: "string" },
+      until: { type: "string" },
       topic: { type: "string" },
       limit: { type: "string" },
       "no-rerank": { type: "boolean" },
@@ -135,6 +136,7 @@ async function searchCommand(args: string[]) {
       query,
       ...(values.project ? { project: values.project } : {}),
       ...(values.since ? { since: values.since } : {}),
+      ...(values.until ? { until: values.until } : {}),
       ...(values.topic ? { topic: values.topic } : {}),
       ...(values.limit ? { limit: Number(values.limit) } : {}),
       // Run by an agent from inside a Claude Code session: leave out what it already has in context.

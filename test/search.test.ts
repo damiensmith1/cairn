@@ -2,7 +2,7 @@ import { utimesSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { chunkTexts, split } from "../src/chunk.js";
 import { embedPending, ingest } from "../src/ingest.js";
-import { fuse, search, toFtsQuery } from "../src/search.js";
+import { fuse, search, type SearchOptions, timeWindow, toFtsQuery } from "../src/search.js";
 import { ClaudeCodeSource } from "../src/sources/claude-code.js";
 import { Store } from "../src/store.js";
 import { assistant, FakeEmbedder, projectsDir, text, toolUse, user } from "./helpers.js";
@@ -91,6 +91,49 @@ describe("ingest + embed + search", () => {
     expect(chunk).toContain("project: llm-cassette");
     expect(chunk).toContain("[previous reply, end] …Keep 0.85");
     expect(chunk).toContain("[user] yes keep 0.85");
+  });
+});
+
+describe("time windows", () => {
+  // One weak match in its own moment, and 60 stronger matches at other times: more than search's
+  // candidate pool (50), so without filtering inside retrieval the weak one never gets a look in.
+  async function setup(targetFirst: boolean) {
+    // Timestamps follow creation order, so build the target before or after the crowd.
+    const makeTarget = () => [user("an old note: the threshold was set once"), assistant([text("Set it once and moved on.")])];
+    const makeCrowd = () => Array.from({ length: 60 }, (_, i) => [user(`threshold threshold question ${i}`), assistant([text("threshold threshold threshold")])]).flat();
+    const [target, crowd] = targetFirst ? [makeTarget(), makeCrowd()] : (() => { const c = makeCrowd(); return [makeTarget(), c]; })();
+    const { root, files } = projectsDir(targetFirst ? { a: target, b: crowd } : { b: crowd, a: target });
+    const old = Date.now() / 1000 - 3600;
+    for (const f of Object.values(files)) utimesSync(f, old, old);
+    const embedder = new FakeEmbedder();
+    const store = new Store(":memory:", embedder.dims);
+    await ingest(store, [new ClaudeCodeSource(root)]);
+    await embedPending(store, embedder);
+    const at = target[0]!.timestamp as string;
+    const users = async (opts: SearchOptions = {}) => (await search(store, embedder, "threshold", { limit: 10, ...opts })).flatMap((g) => g.hits.map((h) => h.exchange.user));
+    return { users, at };
+  }
+  const second = (iso: string, d: number) => new Date(Date.parse(iso) + d * 1000).toISOString();
+
+  it("finds a match inside the window that better matches elsewhere would crowd out", async () => {
+    const { users, at } = await setup(true); // the target is the earliest exchange
+    expect(await users()).not.toContain("an old note: the threshold was set once");
+    expect(await users({ until: second(at, 1) })).toEqual(["an old note: the threshold was set once"]);
+  });
+
+  it("filters by since as well, and both together", async () => {
+    const { users, at } = await setup(false); // the target is the latest exchange
+    expect(await users({ since: at })).toEqual(["an old note: the threshold was set once"]);
+    expect(await users({ since: at, until: second(at, 1) })).toEqual(["an old note: the threshold was set once"]);
+    expect(await users({ since: second(at, 1) })).toEqual([]);
+  });
+
+  it("reads bare dates as local days, until through the end of its day", () => {
+    const start = (d: string) => new Date(`${d}T00:00:00`).toISOString();
+    expect(timeWindow("2026-10-17", "2026-10-17")).toEqual({ since: start("2026-10-17"), until: start("2026-10-18") });
+    expect(timeWindow(undefined, "2026-10-31")).toEqual({ until: start("2026-11-01") });
+    expect(timeWindow("2026-10-17T12:00:00Z")).toEqual({ since: "2026-10-17T12:00:00.000Z" });
+    expect(() => timeWindow("last week")).toThrow(/Not a date/);
   });
 });
 

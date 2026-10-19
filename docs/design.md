@@ -338,6 +338,7 @@ Each links to the full write-up in [[experiments]].
 | Pointers as a deterministic enricher and link graph | Exact lookups and related sessions for free; GraphRAG-style expansion to test |
 | Intent decides which index leads (`refs` → the pointer graph); no label boost | One query layer serves all five question types |
 | A usage log through plainlog, queries masked (2026-10-18, author) | Shows the user their past queries (`cairn history`); search → open pairs are implicit relevance labels from real questions; plainlog gets real use. Queries can contain pasted keys, so they're masked before writing |
+| Time and status questions are left to the agent (2026-10-18, author) | "What are we working on recently" fails as search (no topic, ranking ignores time), but interpreting time and status is the harness's job. Considered and dropped: a time-phrase parser, a fixed `recent` report, a `sessions` tool and a no-query list mode. Search, with its `since`/`until` window, stays the one way in |
 | MCP has no `ask` tool (2026-10-18) | The calling agent reasons over passages itself; `ask` would add a second LLM call and API cost |
 | MCP output frames passages as data and masks secrets (2026-10-18) | Old conversations can contain instructions and pasted keys; both stay inert or on the machine |
 | **Label boost dropped from ranking (2026-10-18, author)** | No gain in any test (eval v1, the tuning grid, the ceiling with perfect labels); strong boosting hurts. Labels stay stored for `brief`'s key exchanges and the topic filter. `cairn decisions` and `cairn unresolved` were removed: the boost was all they added |
@@ -425,6 +426,16 @@ Each links to the full write-up in [[experiments]].
       node` would break it until `cairn service start` ran again. Fixed
       2026-10-18: the service and the MCP registration use Node's PATH
       location (`/opt/homebrew/bin/node`) when it's the same binary.
+- [x] **`since` filtered after candidate selection.** Search took its top
+      50 keyword and top 50 vector candidates from all history, then
+      dropped those before `since`, so a short window could come back
+      nearly empty. **Fixed 2026-10-18, with `until` added:** the keyword
+      query joins exchanges and filters on time, and the vector search
+      only considers chunks inside the window (sqlite-vec's KNN accepts a
+      `rowid IN (…)` constraint). A bare date is a local day, and `until`
+      includes it. On the real store, "label probes …" since today went
+      from 4 hits to 10, all from today; windowed retrieval takes 3–17 ms,
+      no slower than unwindowed.
 - [ ] **Usage log rotation.** `usage.jsonl` grows without bound (~300
       bytes per search). Rotate by size or month once it matters.
 - [ ] **An eval from real usage.** Once the usage log has a few weeks of

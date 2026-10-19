@@ -104,6 +104,7 @@ export class Core implements Api {
       limit: req.limit ?? 10,
       ...(req.project ? { project: req.project } : {}),
       ...(req.since ? { since: req.since } : {}),
+      ...(req.until ? { until: req.until } : {}),
       ...(req.topic ? { topic: req.topic } : {}),
       ...(req.askingSession ? { askingSession: req.askingSession } : {}),
       ...(this.labels ? { labels: this.labels } : {}),

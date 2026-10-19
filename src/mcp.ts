@@ -54,22 +54,24 @@ export function createMcpServer(connect: () => Promise<Api>, version = "0.0.0", 
     {
       title: "Search past sessions",
       description:
-        "Search the user's past Claude Code sessions (all projects) for earlier discussions: what was decided and why, what was tried, what's still open, how something was done. Keyword and semantic search, reranked. Returns the best-matching exchanges grouped by session, each with an #id, project, session and date. Use the specific names involved (projects, files, tools) when you know them. Follow up with `open` to read an exchange in full.",
+        "Search the user's past Claude Code sessions (all projects) for earlier discussions: what was decided and why, what was tried, what's still open, how something was done. Keyword and semantic search, reranked. Returns the best-matching exchanges grouped by session, each with an #id, project, session and date. Use the specific names involved (projects, files, tools) when you know them. For a period (last week, in September), pass since/until. Follow up with `open` to read an exchange in full.",
       inputSchema: {
         query: z.string().min(1).describe("What to look for, as a question or the key terms, e.g. 'why did we pick SQLite over an LSM tree'"),
         project: z.string().optional().describe("Only this project (its folder name, e.g. 'cairn')"),
-        since: z.string().regex(/^\d{4}-\d{2}-\d{2}/).optional().describe("Only exchanges on or after this date (YYYY-MM-DD)"),
+        since: z.string().regex(/^\d{4}-\d{2}-\d{2}/).optional().describe("Only exchanges on or after this date: YYYY-MM-DD (the user's local day) or an ISO timestamp"),
+        until: z.string().regex(/^\d{4}-\d{2}-\d{2}/).optional().describe("Only exchanges on or before this date: YYYY-MM-DD (through the end of that local day) or an ISO timestamp"),
         limit: z.number().int().min(1).max(20).optional().describe("How many exchanges (default 10)"),
       },
       annotations: { title: "Search past sessions", ...READ_ONLY },
     },
-    ({ query, project, since, limit }) =>
+    ({ query, project, since, until, limit }) =>
       withApi(async (api) => {
         const res = await api.search({
           query,
           limit: limit ?? 10,
           ...(project ? { project } : {}),
           ...(since ? { since } : {}),
+          ...(until ? { until } : {}),
           ...(options.session ? { askingSession: options.session } : {}),
           client: "mcp",
         });

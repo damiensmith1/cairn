@@ -29,7 +29,7 @@ work; query understanding (Laya) is shelved. See the build order in docs/design.
   `set` and `remove` change the author's Keychain (the item is machine-wide, not under
   `CAIRN_HOME`): ask first.
 - `npm run cairn -- index [--no-embed] [--limit N] [--retry-failed]`: read new logs, embed what's new
-- `npm run cairn -- search "<query>" [--project P] [--since DATE] [--topic T] [--no-rerank]` (reranking is on by default)
+- `npm run cairn -- search "<query>" [--project P] [--since DATE] [--until DATE] [--topic T] [--no-rerank]` (reranking is on by default)
 - `npm run cairn -- refs <file|sha|#pr|url>` and `npm run cairn -- related <session>`
 - `npm run cairn -- open <#id>`, `brief <session|#id>`, `ask "<question>"` (ask needs an
   Anthropic key: the one `cairn init` or `cairn key set` stored in the Keychain, or ANTHROPIC_API_KEY; it calls

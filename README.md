@@ -96,7 +96,7 @@ From source: `git clone https://github.com/damiensmith1/cairn`, then
 ## Commands
 
 ```
-cairn search <query>          hybrid search, top 10 reranked
+cairn search <query>          hybrid search, top 10 reranked (--since/--until DATE, --project P)
 cairn open <#id>              an exchange with its neighbours
 cairn brief <session|#id>     what a session was: dates, commits, files, key exchanges
 cairn ask <question>          an answer from your sessions, with citations

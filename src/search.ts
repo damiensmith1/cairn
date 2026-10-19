@@ -3,7 +3,7 @@ import type { LabelModel } from "./labels.js";
 import { RERANK_CHARS, RERANK_TOP } from "./rerank.js";
 import type { Reranker } from "./rerank.js";
 import { contentKey } from "./store.js";
-import type { Match, Store } from "./store.js";
+import type { Match, Store, TimeWindow } from "./store.js";
 import type { StoredExchange } from "./types.js";
 
 /** Reciprocal rank fusion constant: dampens how much the very top of one list dominates. */
@@ -40,11 +40,29 @@ export function fuse(lists: number[][], k = RRF_K, weights: number[] = []): Map<
  */
 export type Intent = "decision" | "open" | "recall" | "find_session" | "refs";
 
+/**
+ * `since`/`until` as given (YYYY-MM-DD, or an ISO timestamp) → ISO bounds to compare with stored
+ * UTC timestamps. A bare date is a day in local time, the way the CLI shows times, and `until`
+ * includes that whole day.
+ */
+export function timeWindow(since?: string, until?: string): TimeWindow {
+  const day = /^\d{4}-\d{2}-\d{2}$/;
+  const at = (s: string, nextDay: boolean) => {
+    const d = day.test(s) ? new Date(`${s}T00:00:00`) : new Date(s);
+    if (Number.isNaN(d.getTime())) throw new Error(`Not a date: ${s} (use YYYY-MM-DD or an ISO timestamp)`);
+    if (nextDay && day.test(s)) d.setDate(d.getDate() + 1);
+    return d.toISOString();
+  };
+  return { ...(since ? { since: at(since, false) } : {}), ...(until ? { until: at(until, true) } : {}) };
+}
+
 export interface SearchOptions {
   limit?: number;
   project?: string;
-  /** ISO date; only exchanges at or after it. */
+  /** Only exchanges on or after this: a date (your local day) or an ISO timestamp. */
   since?: string;
+  /** Only exchanges on or before this: a date (through the end of your local day) or an ISO timestamp. */
+  until?: string;
   /** Only exchanges whose labelled topic is this. Needs a label model. */
   topic?: string;
   /**
@@ -87,9 +105,10 @@ export interface SessionGroup {
 export async function search(store: Store, embedder: Embedder, query: string, options: SearchOptions = {}): Promise<SessionGroup[]> {
   const limit = options.limit ?? 10;
   const pool = options.pool ?? Math.max(50, limit * 5);
-  const keyword = store.keyword(toFtsQuery(query), pool);
+  const window = timeWindow(options.since, options.until);
+  const keyword = store.keyword(toFtsQuery(query), pool, window);
   const [vector] = await embedder.embed([query], "query");
-  const nearest = store.nearest(vector!, pool);
+  const nearest = store.nearest(vector!, pool, window);
   const scores = fuse([keyword.map((m) => m.seq), nearest.map((m) => m.seq)], options.rrfK, options.weights);
   const labels = options.labels && options.topic ? store.labels([...scores.keys()], options.labels.version) : new Map();
   const ranked = [...scores.entries()].sort((a, b) => b[1] - a[1]).map(([seq]) => seq);
@@ -107,7 +126,7 @@ export async function search(store: Store, embedder: Embedder, query: string, op
     const x = bySeq.get(seq);
     if (!x) continue;
     if (options.project && x.project !== options.project) continue;
-    if (options.since && x.at < options.since) continue;
+    if ((window.since && x.at < window.since) || (window.until && x.at >= window.until)) continue;
     if (options.topic && labels.get(seq)?.topic !== options.topic) continue;
     // Forked and resumed sessions copy earlier exchanges: show each once.
     const key = contentKey(x);
