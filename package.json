@@ -1,6 +1,6 @@
 {
   "name": "@damiensmith1/cairn",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Searchable memory for your Claude Code sessions: local hybrid search with reranking, a CLI, and an MCP server for agents.",
   "license": "MIT",
   "author": "Damien Smith",
