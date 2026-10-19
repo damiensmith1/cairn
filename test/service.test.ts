@@ -98,6 +98,7 @@ describe("cairnd", () => {
       expect((await api.brief("s"))?.exchanges).toBe(2);
       const status = await api.status();
       expect(status.daemon?.pid).toBe(process.pid);
+      expect(status.daemon?.version).toBe((await import("../src/paths.js")).cairnVersion());
       expect(status.daemon?.lastIndex?.result.appended).toBeGreaterThanOrEqual(0);
     } finally {
       api.close();

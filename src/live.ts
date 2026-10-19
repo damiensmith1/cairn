@@ -113,7 +113,7 @@ export function header(s: StatusResponse | undefined, lastSweep: string | undefi
   const doing = d.progress ? `embedding ${d.progress.done}/${d.progress.total}` : d.indexing ? "indexing" : "idle";
   const backlog = s.stats.exchanges - s.stats.embedded - s.stats.failed;
   return [
-    `cairnd · pid ${d.pid} · up ${up} min · ${doing} · ollama ${s.ollama} · reranker ${d.reranker}`,
+    `cairnd${d.version ? ` ${d.version}` : ""} · pid ${d.pid} · up ${up} min · ${doing} · ollama ${s.ollama} · reranker ${d.reranker}`,
     `store ${s.stats.exchanges.toLocaleString()} exchanges · ${s.stats.embedded.toLocaleString()} embedded · ${backlog.toLocaleString()} backlog · ${s.stats.pointers.toLocaleString()} pointers · ${s.stats.labelled.toLocaleString()} labelled`,
     `last sweep ${lastSweep ? time(lastSweep) : "—"} · last index ${d.lastIndex ? time(d.lastIndex.at) : "—"}${d.lastError ? ` · last error: ${d.lastError}` : ""}`,
   ];

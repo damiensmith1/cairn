@@ -5,6 +5,7 @@ import type { CairnEvent } from "./events.js";
 import { Coalescer } from "./queue.js";
 import { serve } from "./rpc.js";
 import { watchSources } from "./watcher.js";
+import { cairnVersion } from "../paths.js";
 
 export interface DaemonOptions {
   socket: string;
@@ -28,7 +29,7 @@ export interface Daemon {
  */
 export async function startDaemon(core: Core, options: DaemonOptions): Promise<Daemon> {
   const log = options.log ?? ((line: string) => console.log(`${new Date().toISOString()} ${line}`));
-  const info = { pid: process.pid, startedAt: new Date().toISOString(), indexing: false, reranker: "unloaded" as const };
+  const info = { version: cairnVersion(), pid: process.pid, startedAt: new Date().toISOString(), indexing: false, reranker: "unloaded" as const };
   core.daemon = info;
   core.rerankerIdleMs = options.rerankerIdleMs ?? 10 * 60 * 1000;
   const events = (core.events = new EventBus());

@@ -109,6 +109,7 @@ cairn init [--check]          set up, or check the setup
 cairn key set|remove|status   the Anthropic key used by ask
 cairn mcp                     the MCP server, over stdio
 cairn service start|stop|status
+cairn --version
 ```
 
 ## What stays on your machine

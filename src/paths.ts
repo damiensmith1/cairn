@@ -1,5 +1,7 @@
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /** cairn's data folder: `~/.cairn`, or `CAIRN_HOME`. */
 export const cairnHome = () => process.env.CAIRN_HOME ?? join(homedir(), ".cairn");
@@ -20,3 +22,15 @@ export const labelModelPath = () => join(cairnHome(), "models", "labels.json");
  */
 export const claudeProjectsDir = (env: NodeJS.ProcessEnv = process.env) =>
   env.CLAUDE_PROJECTS_DIR ?? join(env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "projects");
+
+/** Where this cairn is installed: one level above src/ or dist/, wherever this module ended up. */
+export const cairnRoot = () => dirname(dirname(fileURLToPath(import.meta.url)));
+
+/** The version of this cairn, from its package.json. */
+export function cairnVersion(): string {
+  try {
+    return (JSON.parse(readFileSync(join(cairnRoot(), "package.json"), "utf8")) as { version?: string }).version ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+}

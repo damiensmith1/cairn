@@ -14,3 +14,13 @@ describe("claudeProjectsDir", () => {
     expect(claudeProjectsDir({ CLAUDE_CONFIG_DIR: "/work/claude", CLAUDE_PROJECTS_DIR: "/elsewhere" })).toBe("/elsewhere");
   });
 });
+
+describe("cairnVersion", () => {
+  it("reads this checkout's package.json", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { cairnVersion } = await import("../src/paths.js");
+    const pkg = JSON.parse(readFileSync(join(import.meta.dirname, "..", "package.json"), "utf8")) as { version: string };
+    expect(cairnVersion()).toBe(pkg.version);
+  });
+});

@@ -114,6 +114,8 @@ export interface BriefResponse {
 }
 
 export interface DaemonInfo {
+  /** The version cairnd is running, read when it started (an upgrade on disk doesn't change it). Missing before 0.1.2. */
+  version?: string;
   pid: number;
   startedAt: string;
   indexing: boolean;

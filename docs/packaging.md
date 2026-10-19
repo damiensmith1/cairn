@@ -341,7 +341,15 @@ A terminal UI built with Ink (React for terminals):
   tried first, and npm runs dependencies' own install scripts after the
   package's, so deleting protobufjs before its script ran failed the
   whole install. Init runs after npm is done. Re-run `cairn init` after
-  upgrading.
+  upgrading (see below: init doesn't restart cairnd).
+- **Which cairn is running** (2026-10-18): `cairn status` shows the
+  installed version and where it runs from, and the version cairnd is
+  running (recorded when it started, so an upgrade on disk doesn't change
+  it), with a warning to run `cairn service start` when they differ.
+  `cairn --version` prints the installed one. After `npm install -g`:
+  `cairn init` (trims the new install), then `cairn service start`
+  (restarts cairnd on the new code), then restart Claude Code sessions
+  for the new MCP server.
 - **Homebrew: not now** (decided 2026-10-18). npm alone covers anyone with
   Node; a formula would install the npm package anyway, and a Homebrew
   install would put cairn under a versioned Cellar path that cairnd's

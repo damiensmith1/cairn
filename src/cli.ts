@@ -5,7 +5,7 @@ import { ask, explainAskError } from "./ask.js";
 import { keyStore } from "./credentials.js";
 import { history, type HistoryRow, readUsage, usagePath } from "./usage.js";
 import { runLive } from "./live.js";
-import { labelModelPath, logDir, socketPath } from "./paths.js";
+import { cairnRoot, cairnVersion, labelModelPath, logDir, socketPath } from "./paths.js";
 import type { SessionGroup } from "./search.js";
 import type { Api } from "./service/api.js";
 import { Core } from "./service/core.js";
@@ -37,6 +37,7 @@ const USAGE = `cairn: searchable memory for agent sessions
   cairn live                             watch cairnd work: status and activity as it happens
   cairn service start|stop|status        run cairnd in the background, at every login
   cairn daemon                           run cairnd in the foreground
+  cairn --version                        this cairn's version
 `;
 
 const tty = process.stdout.isTTY;
@@ -277,6 +278,7 @@ async function status() {
   const a = await api();
   try {
     const s = await a.status();
+    console.log(`cairn      ${cairnVersion()} ${dim(`(${cairnRoot()})`)}`);
     console.log(`store      ${s.store} (${s.sizeMb.toFixed(1)} MB)`);
     console.log(`exchanges  ${s.stats.exchanges} in ${s.stats.sessions} sessions`);
     console.log(`embedded   ${s.stats.embedded} exchanges, ${s.stats.chunks} chunks (${s.embedder})`);
@@ -289,7 +291,8 @@ async function status() {
     if (!d) return console.log(`cairnd     not running ${dim("(cairn service start)")}`);
     const up = Math.round((Date.now() - Date.parse(d.startedAt)) / 60_000);
     const doing = d.progress ? `embedding ${d.progress.done}/${d.progress.total}` : d.indexing ? "indexing" : "idle";
-    console.log(`cairnd     running, pid ${d.pid}, up ${up} min, ${doing}, reranker ${d.reranker}`);
+    console.log(`cairnd     running ${d.version ?? "an older version"}, pid ${d.pid}, up ${up} min, ${doing}, reranker ${d.reranker}`);
+    if (d.version !== cairnVersion()) console.log(`           ${bold(`cairnd is running ${d.version ?? "an older cairn"}, not ${cairnVersion()}`)}: run cairn service start to restart it`);
     if (d.lastIndex) console.log(dim(`           last index ${when(d.lastIndex.at, true)}: ${d.lastIndex.result.appended} new`));
     if (d.lastError) console.log(`           last error: ${d.lastError}`);
   } finally {
@@ -389,7 +392,7 @@ async function showSearch(rows: HistoryRow[], n: number) {
 async function mcp() {
   // Loaded only here, like init: the MCP SDK isn't needed by any other command.
   const { serveMcp } = await import("./mcp.js");
-  await serveMcp(api);
+  await serveMcp(api, cairnVersion());
 }
 
 async function init(args: string[]) {
@@ -443,7 +446,9 @@ const commands: Record<string, (args: string[]) => Promise<void>> = {
   live: () => runLive(),
 };
 const run = command ? commands[command] : undefined;
-if (!run) {
+if (command === "--version" || command === "-v" || command === "version") {
+  console.log(cairnVersion());
+} else if (!run) {
   console.log(USAGE);
   process.exitCode = command ? 1 : 0;
 } else {
